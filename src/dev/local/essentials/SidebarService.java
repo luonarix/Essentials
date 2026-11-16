@@ -37,6 +37,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.PathInterpolator;
 import android.view.inputmethod.InputMethodManager;
@@ -71,6 +72,8 @@ public class SidebarService extends Service {
     private static final long AUTO_HIDE_MS = 12000L;
     private static final long TUCK_DELAY_MS = 3000L;
     private static final int ANIM_MS = 220;
+    /** Tabs fade/slide in and out with the same duration, mirrored. */
+    private static final int TAB_ANIM_MS = 180;
     private static final int EDGE_INSET_DP = 10;
     private static final int PANEL_INSET_DP = 42;
 
@@ -876,8 +879,10 @@ public class SidebarService extends Service {
         panelKind = KIND_NONE;
 
         if (dockScroll != null) {
-            dockScroll.animate().alpha(0f).translationX(-dp(26))
-                    .setDuration(150).start();
+            dockScroll.animate().alpha(0f).translationX(-dp(22))
+                    .setDuration(TAB_ANIM_MS)
+                    .setInterpolator(new AccelerateInterpolator())
+                    .start();
         }
         if (dockMenu != null) {
             final int travel = dockMenu.getWidth() > 0
@@ -961,7 +966,7 @@ public class SidebarService extends Service {
         handler.removeCallbacks(autoHide);
 
         card.animate().alpha(1f).translationX(0f)
-                .setDuration(180)
+                .setDuration(TAB_ANIM_MS)
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
 
@@ -993,22 +998,30 @@ public class SidebarService extends Service {
             setDockFocusable(false);
         }
 
+        final boolean lastTab = tabViews.isEmpty();
         if (dockTabs != null) {
-            card.animate().alpha(0f).translationX(dp(-18))
-                    .setDuration(130)
+            // Reverse of the entrance: fade out while sliding back left.
+            // The card is only removed (and the column hidden) once that
+            // animation finishes, otherwise it would vanish in one frame.
+            card.animate().alpha(0f).translationX(dp(-22))
+                    .setDuration(TAB_ANIM_MS)
+                    .setInterpolator(new AccelerateInterpolator())
                     .withEndAction(new Runnable() {
                         public void run() {
                             if (dockTabs != null) dockTabs.removeView(card);
+                            if (lastTab && tabViews.isEmpty() && dockScroll != null) {
+                                dockScroll.setVisibility(View.GONE);
+                                bumpAutoHide();
+                            }
                         }
                     })
                     .start();
-        }
-        paintTabButton(key, false);
-        if (TAB_EDITOR.equals(key)) rebuildDockMenu();
-        if (tabViews.isEmpty() && dockScroll != null) {
+        } else if (lastTab && dockScroll != null) {
             dockScroll.setVisibility(View.GONE);
             bumpAutoHide();
         }
+        paintTabButton(key, false);
+        if (TAB_EDITOR.equals(key)) rebuildDockMenu();
     }
 
     /** Warm accent frame on menu buttons whose tab is open. */
