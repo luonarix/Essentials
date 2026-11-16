@@ -651,13 +651,32 @@ public class SidebarService extends Service {
 
         LinearLayout menu = buildMenu();
         dockMenu = menu;
+
+        // Measure before the window is shown so the card is already at its
+        // final vertical position. Re-positioning it in a post used to make
+        // the menu jump up from the bottom for one frame.
+        menu.measure(View.MeasureSpec.makeMeasureSpec(screenW(), View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(screenH(), View.MeasureSpec.AT_MOST));
+        int menuW = menu.getMeasuredWidth();
+        int menuH = menu.getMeasuredHeight();
+
         final FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         mp.gravity = Gravity.TOP | Gravity.END;
         mp.rightMargin = dp(PANEL_INSET_DP);
-        mp.topMargin = clamp(handleParams.y, 0, Math.max(0, screenH() - dp(220)));
+        int center = handleParams.y + handleParams.height / 2;
+        mp.topMargin = clamp(center - menuH / 2, dp(8),
+                Math.max(dp(8), screenH() - menuH - dp(8)));
+        // Off-screen to the right before the first frame, so the slide-in
+        // never flashes at its final position.
+        menu.setTranslationX(dp(340));
         root.addView(menu, mp);
+
+        // Size the tab column from the menu's measured width up front, so tabs
+        // do not reflow after the window appears.
+        sp.width = Math.max(dp(180), screenW() - menuW - dp(PANEL_INSET_DP)
+                - dp(EDGE_INSET_DP) - dp(10));
 
         panelParams = new WindowManager.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
@@ -681,29 +700,10 @@ public class SidebarService extends Service {
         menu.post(new Runnable() {
             public void run() {
                 if (dockMenu == null) return;
-                int mh = dockMenu.getHeight();
-                int center = handleParams.y + handleParams.height / 2;
-                mp.topMargin = clamp(center - mh / 2, dp(8),
-                        Math.max(dp(8), screenH() - mh - dp(8)));
-                dockMenu.setLayoutParams(mp);
-
-                // Keep the tab column clear of the menu even when the menu
-                // grows to a third column.
-                if (dockScroll != null) {
-                    int avail = screenW() - dockMenu.getWidth()
-                            - dp(PANEL_INSET_DP) - dp(EDGE_INSET_DP) - dp(10);
-                    ViewGroup.LayoutParams scp = dockScroll.getLayoutParams();
-                    scp.width = Math.max(dp(180), avail);
-                    dockScroll.setLayoutParams(scp);
-                }
-
-                dockMenu.setAlpha(1f);
-                dockMenu.setTranslationX(dp(340));
                 dockMenu.animate().translationX(0f)
                         .setDuration(ANIM_MS)
                         .setInterpolator(new PathInterpolator(0.4f, 0f, 0.2f, 1f))
                         .start();
-                Ui.stagger(dockMenu, 50, 20);
 
                 for (View tab : tabViews.values()) {
                     tab.setAlpha(0f);
@@ -952,14 +952,14 @@ public class SidebarService extends Service {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         p.bottomMargin = dp(8);
+        card.setAlpha(0f);
+        card.setTranslationX(dp(-22));
         dockTabs.addView(card, p);
         tabViews.put(key, card);
         dockScroll.setVisibility(View.VISIBLE);
         paintTabButton(key, true);
         handler.removeCallbacks(autoHide);
 
-        card.setAlpha(0f);
-        card.setTranslationX(dp(-22));
         card.animate().alpha(1f).translationX(0f)
                 .setDuration(180)
                 .setInterpolator(new DecelerateInterpolator())
