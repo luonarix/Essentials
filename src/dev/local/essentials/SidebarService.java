@@ -73,7 +73,7 @@ public class SidebarService extends Service {
     private static final long TUCK_DELAY_MS = 3000L;
     private static final int ANIM_MS = 220;
     /** Tabs fade/slide in and out with the same duration, mirrored. */
-    private static final int TAB_ANIM_MS = 180;
+    private static final int TAB_ANIM_MS = 220;
     private static final int EDGE_INSET_DP = 10;
     private static final int PANEL_INSET_DP = 42;
 
@@ -1000,16 +1000,27 @@ public class SidebarService extends Service {
 
         final boolean lastTab = tabViews.isEmpty();
         if (dockTabs != null) {
-            // Reverse of the entrance: fade out and slide back to the left
-            // while the card's height collapses. Collapsing the height makes
-            // every tab below drift up smoothly into the freed slot instead of
-            // snapping into place when the view is removed.
+            // Reverse of the entrance: fade out and slide back to the left.
             card.animate().cancel();
-            final LinearLayout.LayoutParams lp =
+            card.setAlpha(1f);
+            card.setTranslationX(0f);
+
+            // Every tab below the closing one is moved up by exactly its
+            // height with a translation (pure GPU property, no layout pass),
+            // so the column drifts instead of snapping when the view goes.
+            final int index = dockTabs.indexOfChild(card);
+            final List<View> below = new ArrayList<>();
+            if (index >= 0) {
+                for (int i = index + 1; i < dockTabs.getChildCount(); i++) {
+                    below.add(dockTabs.getChildAt(i));
+                }
+            }
+            LinearLayout.LayoutParams lp =
                     (LinearLayout.LayoutParams) card.getLayoutParams();
-            final int fromHeight = card.getHeight() > 0
-                    ? card.getHeight() : card.getMeasuredHeight();
-            final int fromMargin = lp.bottomMargin;
+            int cardH = card.getHeight();
+            if (cardH <= 0) cardH = card.getMeasuredHeight();
+            if (cardH <= 0) cardH = dp(120);
+            final int shift = cardH + (lp != null ? lp.bottomMargin : 0);
 
             ValueAnimator out = ValueAnimator.ofFloat(0f, 1f);
             out.setDuration(TAB_ANIM_MS);
@@ -1018,16 +1029,22 @@ public class SidebarService extends Service {
                 public void onAnimationUpdate(ValueAnimator a) {
                     if (dockTabs == null) return;
                     float f = a.getAnimatedFraction();
-                    lp.height = Math.max(0, Math.round(fromHeight * (1f - f)));
-                    lp.bottomMargin = Math.round(fromMargin * (1f - f));
-                    card.setLayoutParams(lp);
                     card.setAlpha(1f - f);
                     card.setTranslationX(-dp(22) * f);
+                    float up = -shift * f;
+                    for (int i = 0; i < below.size(); i++) {
+                        below.get(i).setTranslationY(up);
+                    }
                 }
             });
             out.addListener(new AnimatorListenerAdapter() {
                 @Override
                 public void onAnimationEnd(Animator a) {
+                    // Reset to zero in the same frame the card is removed:
+                    // layout repositions them to exactly that spot, so no jump.
+                    for (int i = 0; i < below.size(); i++) {
+                        below.get(i).setTranslationY(0f);
+                    }
                     if (dockTabs != null) dockTabs.removeView(card);
                     if (lastTab && tabViews.isEmpty() && dockScroll != null) {
                         dockScroll.setVisibility(View.GONE);
