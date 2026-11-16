@@ -1,21 +1,51 @@
-MIT License
-
 Copyright (c) 2026 Nguyễn Nhật Minh Hoàng
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Essentials — overlay sidebar for Android
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This source code, the compiled application and all associated files (the
+"Software") are the exclusive property of the copyright holder. They are
+published publicly so that anyone may read, study and evaluate them, but
+publishing them does not put them in the public domain and does not grant
+any licence beyond the limited permission stated below.
+
+LIMITED PERMISSION
+
+You may install and use official, unmodified builds of the Software for
+your own personal, non-commercial purposes on devices you own or control.
+
+You may read the source code and quote short excerpts of it for review,
+commentary or discussion, provided the source and author are credited.
+
+ALL OTHER RIGHTS ARE RESERVED. In particular, no permission is granted, and
+none may be implied, to any person to:
+
+  1. copy, reproduce, mirror, republish or redistribute the Software, in
+     whole or in part, in source or binary form;
+  2. modify, adapt, translate, port or create derivative works based on the
+     Software;
+  3. include the Software, or any part of it, in another project, product,
+     application, service or repository;
+  4. sell, resell, rent, lease, sublicense or otherwise commercially exploit
+     the Software or any derivative of it;
+  5. publish, host, bundle or distribute compiled builds (APK or otherwise)
+     of the Software, whether modified or not;
+  6. remove, obscure or alter this notice or any copyright notice.
+
+Forking a public repository through GitHub is permitted by GitHub's Terms of
+Service; such a fork must still comply with this licence and may not be
+published as a separate product, distributed or used commercially.
+
+Using the Software or any part of it outside the limited permission above
+requires prior written permission from the copyright holder. Requests for
+permission may be sent through the author's GitHub profile.
+
+NO WARRANTY
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.

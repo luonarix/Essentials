@@ -4,7 +4,7 @@
 
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![Java](https://img.shields.io/badge/Java-8-ED8B00?logo=openjdk&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-blue)
+![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red)
 
 **Essentials** là một overlay sidebar chạy trên mọi ứng dụng Android. Chạm vào tay
 nắm ở mép phải để mở **dock**: menu cố định một bên, các tab công cụ xếp dọc bên
@@ -122,11 +122,35 @@ Yêu cầu: JDK 21, `aapt2` + `zipalign` (arm64 static), `d8.jar` + `apksigner.j
 Issue và pull request đều được hoan nghênh. Khi sửa code, giữ đúng phong cách hiện
 tại: Java 8, không lambda, không thư viện ngoài, toàn bộ UI tạo bằng code.
 
+Bằng việc gửi issue hoặc pull request, bạn đồng ý cho tác giả sử dụng nội dung
+đóng góp đó trong dự án mà không kèm điều kiện gì thêm.
+
 ## Giấy phép
 
-Phát hành theo giấy phép **MIT**. Xem file [LICENSE](LICENSE).
+**All rights reserved** — bản quyền thuộc về **Nguyễn Nhật Minh Hoàng**, không
+phát hành theo giấy phép nguồn mở nào. Xem file [LICENSE](LICENSE) để biết văn
+bản đầy đủ.
 
-Copyright © 2026 **Nguyễn Nhật Minh Hoàng**.
+Được phép:
+
+- Đọc, nghiên cứu và đánh giá mã nguồn.
+- Cài đặt và dùng bản chính thức, không chỉnh sửa, cho mục đích cá nhân và
+  phi thương mại trên thiết bị của bạn.
+- Trích dẫn ngắn kèm ghi nguồn khi review hoặc thảo luận.
+
+Không được phép khi chưa có văn bản đồng ý của tác giả:
+
+- Sao chép, đăng lại, phân phối lại mã nguồn hoặc APK, dù chỉ một phần.
+- Sửa đổi, chuyển thể, port sang nền tảng khác hoặc tạo sản phẩm phái sinh.
+- Đưa mã nguồn vào project, ứng dụng hay repository khác.
+- Bán, cho thuê, cấp phép lại hoặc khai thác thương mại dưới bất kỳ hình thức nào.
+- Xoá hoặc sửa thông báo bản quyền.
+
+Lưu ý: GitHub cho phép **fork** repository công khai theo Điều khoản dịch vụ của
+GitHub, nhưng bản fork vẫn phải tuân theo giấy phép này và không được phát hành
+như một sản phẩm riêng, không được phân phối hay dùng cho mục đích thương mại.
+
+Copyright © 2026 **Nguyễn Nhật Minh Hoàng**. Mọi quyền được bảo lưu.
 
 ## Miễn trừ trách nhiệm
 
