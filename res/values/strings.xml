@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Essentials</string>
+    <string name="developer">Nguyễn Nhật Minh Hoàng</string>
+    <string name="accessibility_desc">Chỉ dùng để chụp màn hình khi bạn bấm nút Chụp màn hình trong Essentials. Không đọc nội dung, không thao tác ứng dụng khác.</string>
+</resources>

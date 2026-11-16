@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Activity below the new one: slides back a touch. No alpha here on purpose:
+  this window can stay alive while another app is in front, and a translation
+  is reset cleanly when the window is shown again without an animation.
+-->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="220"
+    android:fromXDelta="0"
+    android:toXDelta="-3%"
+    android:interpolator="@android:interpolator/fast_out_slow_in" />

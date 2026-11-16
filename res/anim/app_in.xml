@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Activity opens: small horizontal push + fade. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android">
+    <translate
+        android:duration="220"
+        android:fromXDelta="6%"
+        android:toXDelta="0"
+        android:interpolator="@android:interpolator/fast_out_slow_in" />
+    <alpha
+        android:duration="200"
+        android:fromAlpha="0"
+        android:toAlpha="1"
+        android:interpolator="@android:interpolator/fast_out_slow_in" />
+</set>
