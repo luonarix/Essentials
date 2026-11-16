@@ -1000,22 +1000,42 @@ public class SidebarService extends Service {
 
         final boolean lastTab = tabViews.isEmpty();
         if (dockTabs != null) {
-            // Reverse of the entrance: fade out while sliding back left.
-            // The card is only removed (and the column hidden) once that
-            // animation finishes, otherwise it would vanish in one frame.
-            card.animate().alpha(0f).translationX(dp(-22))
-                    .setDuration(TAB_ANIM_MS)
-                    .setInterpolator(new AccelerateInterpolator())
-                    .withEndAction(new Runnable() {
-                        public void run() {
-                            if (dockTabs != null) dockTabs.removeView(card);
-                            if (lastTab && tabViews.isEmpty() && dockScroll != null) {
-                                dockScroll.setVisibility(View.GONE);
-                                bumpAutoHide();
-                            }
-                        }
-                    })
-                    .start();
+            // Reverse of the entrance: fade out and slide back to the left
+            // while the card's height collapses. Collapsing the height makes
+            // every tab below drift up smoothly into the freed slot instead of
+            // snapping into place when the view is removed.
+            card.animate().cancel();
+            final LinearLayout.LayoutParams lp =
+                    (LinearLayout.LayoutParams) card.getLayoutParams();
+            final int fromHeight = card.getHeight() > 0
+                    ? card.getHeight() : card.getMeasuredHeight();
+            final int fromMargin = lp.bottomMargin;
+
+            ValueAnimator out = ValueAnimator.ofFloat(0f, 1f);
+            out.setDuration(TAB_ANIM_MS);
+            out.setInterpolator(new AccelerateInterpolator());
+            out.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                public void onAnimationUpdate(ValueAnimator a) {
+                    if (dockTabs == null) return;
+                    float f = a.getAnimatedFraction();
+                    lp.height = Math.max(0, Math.round(fromHeight * (1f - f)));
+                    lp.bottomMargin = Math.round(fromMargin * (1f - f));
+                    card.setLayoutParams(lp);
+                    card.setAlpha(1f - f);
+                    card.setTranslationX(-dp(22) * f);
+                }
+            });
+            out.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator a) {
+                    if (dockTabs != null) dockTabs.removeView(card);
+                    if (lastTab && tabViews.isEmpty() && dockScroll != null) {
+                        dockScroll.setVisibility(View.GONE);
+                        bumpAutoHide();
+                    }
+                }
+            });
+            out.start();
         } else if (lastTab && dockScroll != null) {
             dockScroll.setVisibility(View.GONE);
             bumpAutoHide();
