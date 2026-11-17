@@ -15,8 +15,8 @@ rm -rf build
 mkdir -p build/res build/classes build/dex build/gen keys
 
 # Naming rule: major release -> Essentials_v<major>.0.apk, small patch -> Essentials_v<major>.<patch>.apk
-VERSION_NAME="7.1"
-VERSION_CODE=28
+VERSION_NAME="7.2"
+VERSION_CODE=29
 OUTDIR=/storage/emulated/0/Download/Essentials
 APKNAME="Essentials_v${VERSION_NAME}.apk"
 

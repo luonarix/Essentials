@@ -123,6 +123,18 @@ public class MainActivity extends Activity {
         author.setLayoutParams(ap);
         root.addView(author);
 
+        TextView licence = Ui.text(this, "Giấy phép & bản quyền \u203a",
+                11, Ui.ACCENT, true);
+        licence.setGravity(Gravity.CENTER_HORIZONTAL);
+        licence.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 4));
+        licence.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                open(AboutActivity.class);
+            }
+        });
+        Ui.press(licence, 0.96f);
+        root.addView(licence);
+
         sv.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(sv);

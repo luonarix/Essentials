@@ -82,6 +82,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | `Notes` | Kho ghi chú JSON cục bộ |
 | `Torch` | Điều khiển đèn flash |
 | `AddShortcutActivity` | Thêm shortcut ứng dụng vào menu |
+| `AboutActivity` | Màn hình giấy phép và bản quyền |
 | `NotesActivity`, `StopwatchActivity`, `ConverterActivity` | Công cụ toàn màn hình |
 | `Ui`, `TouchFade` | Màu/khung, layout helper, ripple và animation |
 
@@ -151,6 +152,9 @@ GitHub, nhưng bản fork vẫn phải tuân theo giấy phép này và không �
 như một sản phẩm riêng, không được phân phối hay dùng cho mục đích thương mại.
 
 Copyright © 2026 **Nguyễn Nhật Minh Hoàng**. Mọi quyền được bảo lưu.
+
+Trong ứng dụng, mục **Giấy phép & bản quyền** ở cuối màn hình chính mở bản tóm tắt
+các quyền trên, kèm số phiên bản đang cài.
 
 ## Miễn trừ trách nhiệm
 
