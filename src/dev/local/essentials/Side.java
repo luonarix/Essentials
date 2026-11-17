@@ -19,7 +19,8 @@ final class Side {
     static final String[] BUILTIN = {
             "#torch", "#quicknote", "#notes", "#timer", "#convert", "#shot", "#volume",
             "#hud", "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
-            "#color", "#lock", "#back", "#home", "#recents", "#menu"
+            "#color", "#lock", "#back", "#home", "#recents",
+            "#ruler", "#tally", "#clip", "#black", "#qr", "#menu"
     };
 
     static final String[] LABELS = {
@@ -28,13 +29,19 @@ final class Side {
             "Nguồn / Khởi động lại", "Kéo rèm thông báo", "Cài đặt nhanh",
             "Chuông / Rung / Im", "Giữ sáng màn hình", "Soi màu & lấy mã Hex",
             "Khoá cảm ứng", "Quay lại", "Về màn hình chính", "Đa nhiệm",
-            "Menu đầy đủ"
+            "Thước đo & lưới", "Bộ đếm & xúc xắc", "Clipboard & đoạn mẫu",
+            "Màn hình đen", "Mã QR offline", "Menu đầy đủ"
     };
 
     /** Tools added in v7.0, appended once to lists saved by older versions. */
     static final String[] V7_ITEMS = {
             "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
             "#color", "#lock", "#back", "#home", "#recents"
+    };
+
+    /** Tools added in v8.0, appended once to lists saved by older versions. */
+    static final String[] V8_ITEMS = {
+            "#ruler", "#tally", "#clip", "#black", "#qr"
     };
 
     private Side() {}
@@ -46,7 +53,8 @@ final class Side {
             return new ArrayList<>(Arrays.asList("#torch", "#quicknote", "#notes",
                     "#timer", "#convert", "#shot", "#volume", "#hud",
                     "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
-                    "#color", "#lock", "#back", "#home", "#recents"));
+                    "#color", "#lock", "#back", "#home", "#recents",
+                    "#ruler", "#tally", "#clip", "#black", "#qr"));
         }
         List<String> out = new ArrayList<>();
         for (String s : raw.split(",")) {
@@ -132,6 +140,34 @@ final class Side {
         }
         setItems(c, ids);
         sp.edit().putBoolean("tools_v7", true).apply();
+    }
+
+    /** Adds the v8.0 tools once, keeping "#menu" at the end of the list. */
+    static void ensureToolkit8(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        if (sp.getBoolean("tools_v8", false)) return;
+        List<String> ids = items(c);
+        int menu = ids.indexOf("#menu");
+        for (String id : V8_ITEMS) {
+            if (ids.contains(id)) continue;
+            if (menu >= 0) {
+                ids.add(menu, id);
+                menu++;
+            } else {
+                ids.add(id);
+            }
+        }
+        setItems(c, ids);
+        sp.edit().putBoolean("tools_v8", true).apply();
+    }
+
+    static int tally(Context c) {
+        return c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getInt("tally", 0);
+    }
+
+    static void setTally(Context c, int value) {
+        c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putInt("tally", value).apply();
     }
 
     static boolean caffeineOn(Context c) {

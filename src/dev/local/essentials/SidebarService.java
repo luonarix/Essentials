@@ -162,6 +162,9 @@ public class SidebarService extends Service {
     private static final String TAB_VOLUME = "volume";
     private static final String TAB_SHOT = "shot";
     private static final String TAB_EDITOR = "editor";
+    private static final String TAB_TALLY = "tally";
+    private static final String TAB_CLIP = "clip";
+    private static final String TAB_QR = "qr";
 
     /** Tab key -> the menu button that toggles it. */
     private static String tabButtonId(String key) {
@@ -169,6 +172,9 @@ public class SidebarService extends Service {
         if (TAB_NOTES.equals(key)) return "#notes";
         if (TAB_VOLUME.equals(key)) return "#volume";
         if (TAB_SHOT.equals(key)) return "#shot";
+        if (TAB_TALLY.equals(key)) return "#tally";
+        if (TAB_CLIP.equals(key)) return "#clip";
+        if (TAB_QR.equals(key)) return "#qr";
         return null;
     }
 
@@ -188,6 +194,14 @@ public class SidebarService extends Service {
     private FrameLayout colorRoot;
     private Bitmap colorBitmap;
     private FrameLayout lockRoot;
+    private FrameLayout rulerRoot;
+    private RulerView rulerView;
+    private FrameLayout blackRoot;
+
+    // clipboard tab state
+    private LinearLayout clipPinnedList;
+    private LinearLayout clipHistoryList;
+    private TextView clipStatus;
 
     // ------------------------------------------------------------ lifecycle
 
@@ -204,6 +218,7 @@ public class SidebarService extends Service {
         Side.ensureVolume(this);
         Side.ensureHud(this);
         Side.ensureToolkit(this);
+        Side.ensureToolkit8(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         startForegroundSafe();
@@ -237,6 +252,8 @@ public class SidebarService extends Service {
     public void onDestroy() {
         removeTouchLock(false);
         closeColorPicker(false);
+        stopRuler(false);
+        stopBlackScreen(false);
         detachHud();
         hideNow();
         handler.removeCallbacksAndMessages(null);
@@ -734,7 +751,7 @@ public class SidebarService extends Service {
     }
 
     private int dockTabWidth() {
-        return Math.max(dp(210), Math.min(dp(312), screenW() - dp(206)));
+        return Math.max(dp(132), Math.min(dp(312), screenW() - dp(228)));
     }
 
     private static boolean insideView(View v, float x, float y) {
@@ -944,6 +961,9 @@ public class SidebarService extends Service {
         else if (TAB_QUICKNOTE.equals(key)) openQuickNote();
         else if (TAB_SHOT.equals(key)) openShot();
         else if (TAB_EDITOR.equals(key)) showEditor();
+        else if (TAB_TALLY.equals(key)) openTally();
+        else if (TAB_CLIP.equals(key)) openClip();
+        else if (TAB_QR.equals(key)) openQr();
         else if (TAB_NOTEDETAIL.equals(key)) openNotes();
     }
 
@@ -995,7 +1015,6 @@ public class SidebarService extends Service {
                 if (imm != null) imm.hideSoftInputFromWindow(card.getWindowToken(), 0);
             } catch (Exception ignored) {
             }
-            setDockFocusable(false);
         }
 
         final boolean lastTab = tabViews.isEmpty();
@@ -1059,6 +1078,14 @@ public class SidebarService extends Service {
         }
         paintTabButton(key, false);
         if (TAB_EDITOR.equals(key)) rebuildDockMenu();
+        setDockFocusable(needsKeyboard());
+    }
+
+    /** True while a tab with a text field is open, so the IME can show. */
+    private boolean needsKeyboard() {
+        return tabViews.containsKey(TAB_QUICKNOTE)
+                || tabViews.containsKey(TAB_CLIP)
+                || tabViews.containsKey(TAB_QR);
     }
 
     /** Warm accent frame on menu buttons whose tab is open. */
@@ -1195,6 +1222,8 @@ public class SidebarService extends Service {
 
         int total = buttons.size();
         int cols = Math.max(1, (total + MENU_ROWS - 1) / MENU_ROWS);
+        // Three or more columns must stay narrow enough to leave room for tabs.
+        int cell = cols > 2 ? dp(46) : dp(50);
         int next = 0;
         for (int c = 0; c < cols; c++) {
             int remaining = total - next;
@@ -1203,7 +1232,7 @@ public class SidebarService extends Service {
 
             LinearLayout col = Ui.col(this);
             for (int i = 0; i < take && next < total; i++) {
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(50), dp(50));
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cell, cell);
                 p.bottomMargin = dp(6);
                 col.addView(buttons.get(next++), p);
             }
@@ -1314,6 +1343,21 @@ public class SidebarService extends Service {
             case "#recents":
                 iconRes = R.drawable.ic_recents;
                 break;
+            case "#ruler":
+                iconRes = R.drawable.ic_ruler;
+                break;
+            case "#tally":
+                iconRes = R.drawable.ic_tally;
+                break;
+            case "#clip":
+                iconRes = R.drawable.ic_clip;
+                break;
+            case "#black":
+                iconRes = R.drawable.ic_black;
+                break;
+            case "#qr":
+                iconRes = R.drawable.ic_qr;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -1362,6 +1406,38 @@ public class SidebarService extends Service {
         }
         if ("#volume".equals(id)) {
             toggleTab(TAB_VOLUME);
+            return;
+        }
+        if ("#tally".equals(id)) {
+            toggleTab(TAB_TALLY);
+            return;
+        }
+        if ("#clip".equals(id)) {
+            toggleTab(TAB_CLIP);
+            return;
+        }
+        if ("#qr".equals(id)) {
+            toggleTab(TAB_QR);
+            return;
+        }
+        if ("#ruler".equals(id)) {
+            closePanel(false);
+            handler.postDelayed(new Runnable() {
+                public void run() {
+                    hideHandleForCapture();
+                    startRuler();
+                }
+            }, 240);
+            return;
+        }
+        if ("#black".equals(id)) {
+            closePanel(false);
+            handler.postDelayed(new Runnable() {
+                public void run() {
+                    hideHandleForCapture();
+                    startBlackScreen();
+                }
+            }, 240);
             return;
         }
         if ("#hud".equals(id)) {
@@ -3066,6 +3142,579 @@ public class SidebarService extends Service {
                 default:
                     return true;
             }
+        }
+    }
+
+
+    // ------------------------------------------------------------ tally tab
+
+    private void openTally() {
+        if (tabViews.containsKey(TAB_TALLY)) return;
+        buildingTab = TAB_TALLY;
+        LinearLayout card = buildTallyPanel();
+        buildingTab = null;
+        addTab(TAB_TALLY, card);
+    }
+
+    private LinearLayout buildTallyPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Bộ đếm & ngẫu nhiên", false, null));
+
+        final TextView count = Ui.text(this, String.valueOf(Side.tally(this)),
+                44, Ui.ACCENT, true);
+        count.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cp.topMargin = dp(12);
+        card.addView(count, cp);
+
+        TextView unit = Ui.text(this, "lượt", 11, Ui.MUTED, false);
+        unit.setGravity(Gravity.CENTER);
+        card.addView(unit);
+
+        LinearLayout buttons = Ui.row(this);
+        buttons.setGravity(Gravity.CENTER);
+        TextView minus = pill("\u22121", false);
+        TextView reset = pill("Đặt lại", false);
+        TextView plus = pill("+1", true);
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Side.setTally(SidebarService.this, Side.tally(SidebarService.this) - 1);
+                refreshTally(count);
+            }
+        });
+        reset.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Side.setTally(SidebarService.this, 0);
+                refreshTally(count);
+            }
+        });
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Side.setTally(SidebarService.this, Side.tally(SidebarService.this) + 1);
+                refreshTally(count);
+            }
+        });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(12);
+        buttons.addView(minus, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        buttons.addView(reset, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        buttons.addView(plus, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(buttons, bp);
+
+        card.addView(label("NGẪU NHIÊN"));
+
+        final TextView result = Ui.text(this, "\u2014", 30, Ui.TEXT, true);
+        result.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(10);
+        card.addView(result, rp);
+
+        LinearLayout randomRow = Ui.row(this);
+        randomRow.setGravity(Gravity.CENTER);
+        TextView dice = pill("Xúc xắc", false);
+        TextView coin = pill("Đồng xu", false);
+        TextView number = pill("1\u2013100", false);
+        dice.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                randomResult(result, String.valueOf(1 + (int) (Math.random() * 6)));
+            }
+        });
+        coin.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                randomResult(result, Math.random() < 0.5 ? "Sấp" : "Ngửa");
+            }
+        });
+        number.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                randomResult(result, String.valueOf(1 + (int) (Math.random() * 100)));
+            }
+        });
+        LinearLayout.LayoutParams rr = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rr.topMargin = dp(10);
+        randomRow.addView(dice, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        randomRow.addView(coin, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        randomRow.addView(number, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(randomRow, rr);
+
+        TextView note = Ui.text(this,
+                "Bộ đếm được lưu lại, tắt app vẫn còn.", 11, Ui.MUTED, false);
+        note.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(12);
+        card.addView(note, np);
+        return card;
+    }
+
+    private void refreshTally(TextView count) {
+        count.setText(String.valueOf(Side.tally(this)));
+        Ui.pop(count);
+    }
+
+    private void randomResult(TextView view, String text) {
+        view.setText(text);
+        Ui.pop(view);
+    }
+
+    // ------------------------------------------------------------ clipboard tab
+
+    private void openClip() {
+        if (tabViews.containsKey(TAB_CLIP)) return;
+        String clip = readClipboard();
+        if (clip != null) Snippets.addHistory(this, clip);
+        buildingTab = TAB_CLIP;
+        LinearLayout card = buildClipPanel();
+        buildingTab = null;
+        addTab(TAB_CLIP, card);
+        setDockFocusable(true);
+    }
+
+    private LinearLayout buildClipPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(12), dp(10), dp(12), dp(12));
+        card.addView(header("Clipboard & đoạn mẫu", false, null));
+
+        card.addView(label("ĐOẠN MẪU ĐÃ GHIM"));
+        clipPinnedList = Ui.col(this);
+        card.addView(clipPinnedList);
+
+        final EditText input = new EditText(this);
+        input.setBackground(Ui.framed(0x33000000, this, 12));
+        input.setTextColor(Ui.TEXT);
+        input.setHintTextColor(0xB3AAB3C4);
+        input.setHint("Câu lệnh, mã màu, ký tự hay dùng...");
+        input.setTextSize(13);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setMinLines(2);
+        input.setMaxLines(3);
+        input.setPadding(dp(10), dp(8), dp(10), dp(8));
+
+        LinearLayout add = Ui.row(this);
+        add.addView(input, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView save = pill("Ghim", true);
+        save.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String text = input.getText().toString().trim();
+                if (text.isEmpty()) {
+                    toast("Chưa có nội dung");
+                    return;
+                }
+                Snippets.addPinned(SidebarService.this, text);
+                input.setText("");
+                renderClipLists();
+                toast("Đã ghim");
+            }
+        });
+        LinearLayout.LayoutParams saveLp = Ui.lp(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        saveLp.leftMargin = dp(8);
+        add.addView(save, saveLp);
+        LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        addLp.topMargin = dp(8);
+        card.addView(add, addLp);
+
+        card.addView(label("CLIPBOARD GẦN ĐÂY"));
+        clipHistoryList = Ui.col(this);
+        card.addView(clipHistoryList);
+
+        TextView refresh = pill("Đọc clipboard ngay", false);
+        refresh.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String clip = readClipboard();
+                if (clip == null) {
+                    toast("Không đọc được clipboard — mở app Essentials rồi thử lại");
+                    return;
+                }
+                Snippets.addHistory(SidebarService.this, clip);
+                renderClipLists();
+                toast("Đã thêm đoạn vừa copy");
+            }
+        });
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(8);
+        card.addView(refresh, rp);
+
+        clipStatus = Ui.text(this, "", 11, Ui.MUTED, false);
+        clipStatus.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.topMargin = dp(8);
+        card.addView(clipStatus, sp);
+
+        renderClipLists();
+        return card;
+    }
+
+    private void renderClipLists() {
+        if (clipPinnedList != null) {
+            clipPinnedList.removeAllViews();
+            List<String> pinned = Snippets.pinned(this);
+            if (pinned.isEmpty()) {
+                clipPinnedList.addView(emptyRow("Chưa ghim đoạn nào"));
+            } else {
+                for (String text : pinned) clipPinnedList.addView(clipRow(text, true));
+            }
+        }
+        if (clipHistoryList != null) {
+            clipHistoryList.removeAllViews();
+            List<String> history = Snippets.history(this);
+            if (history.isEmpty()) {
+                clipHistoryList.addView(emptyRow("Chưa có đoạn nào"));
+            } else {
+                for (String text : history) clipHistoryList.addView(clipRow(text, false));
+            }
+        }
+        if (clipStatus != null) {
+            clipStatus.setText("Chạm một dòng để chép vào bộ nhớ đệm.");
+        }
+    }
+
+    private View emptyRow(String text) {
+        TextView empty = Ui.text(this, text, 12, Ui.MUTED, false);
+        empty.setPadding(dp(6), dp(8), dp(6), dp(8));
+        return empty;
+    }
+
+    private View clipRow(final String text, final boolean pinned) {
+        LinearLayout row = Ui.row(this);
+        row.setBackground(Ui.framed(ITEM_BG_SOFT, this, 12));
+        row.setPadding(dp(10), dp(9), dp(2), dp(9));
+
+        TextView body = Ui.text(this, text.replace('\n', ' '), 12, Ui.TEXT, false);
+        body.setSingleLine(true);
+        body.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        row.addView(body, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView del = Ui.text(this, "\u00d7", 17, Ui.MUTED, false);
+        del.setPadding(dp(10), 0, dp(9), 0);
+        del.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (pinned) Snippets.removePinned(SidebarService.this, text);
+                else Snippets.removeHistory(SidebarService.this, text);
+                renderClipLists();
+            }
+        });
+        row.addView(del);
+
+        row.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                copyToClipboard(text);
+            }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(6);
+        row.setLayoutParams(lp);
+        Ui.press(row, 0.98f);
+        return row;
+    }
+
+    private void copyToClipboard(String text) {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null) throw new IllegalStateException();
+            cm.setPrimaryClip(ClipData.newPlainText("Essentials", text));
+            Snippets.addHistory(this, text);
+            renderClipLists();
+            toast("Đã chép");
+        } catch (Exception e) {
+            toast("Không chép được");
+        }
+    }
+
+    private String readClipboard() {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null || !cm.hasPrimaryClip()) return null;
+            ClipData clip = cm.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return null;
+            CharSequence text = clip.getItemAt(0).coerceToText(this);
+            if (text == null) return null;
+            String value = text.toString().trim();
+            return value.isEmpty() ? null : value;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------ QR tab
+
+    private void openQr() {
+        if (tabViews.containsKey(TAB_QR)) return;
+        buildingTab = TAB_QR;
+        LinearLayout card = buildQrPanel();
+        buildingTab = null;
+        addTab(TAB_QR, card);
+        setDockFocusable(true);
+    }
+
+    private LinearLayout buildQrPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(12), dp(10), dp(12), dp(12));
+        card.addView(header("Mã QR offline", false, null));
+
+        final EditText input = new EditText(this);
+        input.setBackground(Ui.framed(0x33000000, this, 12));
+        input.setTextColor(Ui.TEXT);
+        input.setHintTextColor(0xB3AAB3C4);
+        input.setHint("Dán văn bản hoặc link...");
+        input.setTextSize(13);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setMinLines(2);
+        input.setMaxLines(4);
+        input.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ip.topMargin = dp(8);
+        card.addView(input, ip);
+
+        final ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setBackground(Ui.bg(0xFFFFFFFF, this, 12));
+        image.setPadding(dp(6), dp(6), dp(6), dp(6));
+        int side = dp(228);
+        LinearLayout.LayoutParams imLp = new LinearLayout.LayoutParams(side, side);
+        imLp.gravity = Gravity.CENTER_HORIZONTAL;
+        imLp.topMargin = dp(10);
+        card.addView(image, imLp);
+
+        final TextView status = Ui.text(this,
+                "Nhập nội dung rồi bấm Tạo mã (tối đa " + QrCode.maxBytes() + " byte)",
+                11, Ui.MUTED, false);
+        status.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stp.topMargin = dp(10);
+        card.addView(status, stp);
+
+        LinearLayout buttons = Ui.row(this);
+        TextView paste = pill("Dán clipboard", false);
+        TextView make = pill("Tạo mã", true);
+        paste.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String clip = readClipboard();
+                if (clip == null) {
+                    toast("Không đọc được clipboard — mở app Essentials rồi thử lại");
+                    return;
+                }
+                input.setText(clip);
+            }
+        });
+        make.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                renderQr(image, status, input.getText().toString());
+            }
+        });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(10);
+        buttons.addView(paste, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams mk = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        mk.leftMargin = dp(8);
+        buttons.addView(make, mk);
+        card.addView(buttons, bp);
+        return card;
+    }
+
+    private void renderQr(ImageView view, TextView status, String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.isEmpty()) {
+            toast("Chưa có nội dung");
+            return;
+        }
+        if (!QrCode.fits(value)) {
+            status.setText("Quá dài: tối đa " + QrCode.maxBytes() + " byte");
+            status.setTextColor(0xFFFF7A7A);
+            return;
+        }
+        try {
+            boolean[][] modules = QrCode.encode(value);
+            int n = modules.length;
+            int quiet = 4;
+            int target = dp(216);
+            int scale = Math.max(1, target / (n + quiet * 2));
+            int px = (n + quiet * 2) * scale;
+            Bitmap bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bmp);
+            canvas.drawColor(0xFFFFFFFF);
+            Paint paint = new Paint();
+            paint.setColor(0xFF000000);
+            for (int y = 0; y < n; y++) {
+                for (int x = 0; x < n; x++) {
+                    if (modules[y][x]) {
+                        int left = (x + quiet) * scale;
+                        int top = (y + quiet) * scale;
+                        canvas.drawRect(left, top, left + scale, top + scale, paint);
+                    }
+                }
+            }
+            view.setImageBitmap(bmp);
+            status.setTextColor(Ui.MUTED);
+            status.setText("QR " + n + "×" + n + " · "
+                    + value.getBytes("UTF-8").length + " byte");
+        } catch (Exception e) {
+            status.setTextColor(0xFFFF7A7A);
+            status.setText("Không tạo được mã QR");
+        }
+    }
+
+    // ------------------------------------------------------------ shared bits
+
+    private TextView pill(String label, boolean primary) {
+        TextView t = Ui.text(this, label, 13, primary ? 0xFF0B1020 : Ui.TEXT, primary);
+        t.setGravity(Gravity.CENTER);
+        t.setBackground(Ui.bg(primary ? Ui.ACCENT : ITEM_BG_SOFT, this, 14));
+        t.setPadding(dp(12), dp(9), dp(12), dp(9));
+        Ui.press(t, 0.94f);
+        return t;
+    }
+
+    private TextView label(String text) {
+        TextView t = Ui.text(this, text, 10, Ui.MUTED, true);
+        t.setLetterSpacing(0.12f);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.topMargin = dp(14);
+        p.bottomMargin = dp(2);
+        t.setLayoutParams(p);
+        return t;
+    }
+
+    // ------------------------------------------------------------ ruler overlay
+
+    private void startRuler() {
+        if (rulerRoot != null) return;
+        final RulerView ruler = new RulerView(this);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(ruler, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final TextView unit = pill("Đơn vị: dp", false);
+        TextView close = pill("Đóng", true);
+        unit.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                ruler.setPixels(!ruler.isPixels());
+                unit.setText(ruler.isPixels() ? "Đơn vị: px" : "Đơn vị: dp");
+            }
+        });
+        close.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stopRuler(true);
+            }
+        });
+
+        LinearLayout bar = Ui.row(this);
+        bar.setGravity(Gravity.CENTER);
+        bar.addView(unit);
+        LinearLayout.LayoutParams gap = Ui.lp(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap.leftMargin = dp(8);
+        bar.addView(close, gap);
+
+        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        bp.bottomMargin = dp(26);
+        root.addView(bar, bp);
+
+        WindowManager.LayoutParams wlp = new WindowManager.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+                TYPE, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT);
+        wlp.gravity = Gravity.TOP | Gravity.START;
+        try {
+            wm.addView(root, wlp);
+            rulerRoot = root;
+            rulerView = ruler;
+        } catch (Exception e) {
+            toast("Không mở được thước đo");
+            restoreHandleAfterCapture();
+            return;
+        }
+        toast("Chạm để đặt tâm đo · lưới 10dp / 50dp");
+    }
+
+    private void stopRuler(boolean restore) {
+        if (rulerRoot == null) return;
+        try {
+            wm.removeView(rulerRoot);
+        } catch (Exception ignored) {
+        }
+        rulerRoot = null;
+        rulerView = null;
+        if (restore) {
+            if (hudView != null) hudView.setVisibility(View.VISIBLE);
+            restoreHandleAfterCapture();
+            if (panel == null) openMenu();
+        }
+    }
+
+    // ------------------------------------------------------------ black screen
+
+    private void startBlackScreen() {
+        if (blackRoot != null) return;
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF000000);
+        root.setClickable(true);
+        root.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View v) {
+                stopBlackScreen(true);
+                return true;
+            }
+        });
+
+        final TextView hint = Ui.text(this, "Giữ khoảng 1 giây để thoát", 11, 0x40FFFFFF, false);
+        hint.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        hp.bottomMargin = dp(46);
+        root.addView(hint, hp);
+
+        WindowManager.LayoutParams wlp = new WindowManager.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+                TYPE, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                PixelFormat.OPAQUE);
+        wlp.gravity = Gravity.TOP | Gravity.START;
+        try {
+            wm.addView(root, wlp);
+            blackRoot = root;
+        } catch (Exception e) {
+            toast("Không bật được màn hình đen");
+            restoreHandleAfterCapture();
+            return;
+        }
+        hint.animate().alpha(0f).setStartDelay(2600).setDuration(700).start();
+    }
+
+    private void stopBlackScreen(boolean restore) {
+        if (blackRoot == null) return;
+        try {
+            wm.removeView(blackRoot);
+        } catch (Exception ignored) {
+        }
+        blackRoot = null;
+        if (restore) {
+            if (hudView != null) hudView.setVisibility(View.VISIBLE);
+            restoreHandleAfterCapture();
+            if (panel == null) openMenu();
         }
     }
 

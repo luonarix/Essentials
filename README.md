@@ -37,8 +37,28 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | Âm thanh | Thanh âm lượng nhạc / chuông / báo thức; xoay vòng Chuông → Rung → Im lặng |
 | Hệ thống | Bảng nguồn, kéo rèm thông báo, Cài đặt nhanh, Back / Home / Đa nhiệm |
 | Tiện ích | Đèn pin, ghi chú nhanh, danh sách ghi chú, bấm giờ, quy đổi đơn vị |
-| Màn hình | HUD CPU / FPS / RAM, giữ sáng màn hình, khoá cảm ứng, soi màu & copy Hex |
+| Đo & ngẫu nhiên | Thước đo lưới dp/px, bộ đếm lượt, xúc xắc / đồng xu / số ngẫu nhiên |
+| Văn bản | Lịch sử clipboard, đoạn văn mẫu ghim sẵn, mã QR offline từ văn bản |
+| Màn hình | HUD CPU / FPS / RAM, giữ sáng, khoá cảm ứng, soi màu Hex, màn hình đen |
 | Giao diện | Ripple lan từ đúng toạ độ chạm, phản hồi nhún, cascade nội dung, animation màn hình |
+
+### Công cụ mới trong v8.0
+
+- **Thước đo & lưới** (`#ruler`): phủ lưới 10dp / 50dp (hoặc 50px / 250px) lên
+  toàn màn hình, có nhãn theo cạnh. Chạm để đặt tâm đo, hiện toạ độ dp và px
+  cùng lúc. Nút **Đơn vị** đổi dp ↔ px, nút **Đóng** trả tay nắm và mở lại dock.
+- **Bộ đếm & ngẫu nhiên** (`#tally`): bộ đếm lớn với `+1` / `−1` / `Đặt lại`,
+  lưu qua các lần mở app; kèm xúc xắc 1–6, đồng xu Sấp/Ngửa và số ngẫu nhiên
+  1–100.
+- **Clipboard & đoạn mẫu** (`#clip`): lưu 12 đoạn vừa copy gần nhất và cho phép
+  ghim sẵn câu lệnh, mã màu hay ký tự hay dùng. Chạm một dòng là chép ngay vào
+  bộ nhớ đệm. Dữ liệu nằm cục bộ, không gửi đi đâu.
+- **Màn hình đen** (`#black`): phủ một lớp đen tuyền `#000000` giữ cho app bên
+  dưới vẫn chạy, giữ màn hình sáng để nghe nhạc hoặc chạy tiến trình dài mà
+  không lộ sáng ban đêm. Giữ khoảng 1 giây ở bất kỳ đâu để thoát.
+- **Mã QR offline** (`#qr`): dựng mã QR từ văn bản hoặc clipboard ngay trên máy,
+  không cần mạng và không dùng thư viện ngoài. Hỗ trợ tới 213 byte (byte mode,
+  mức sửa lỗi M, phiên bản 1–10).
 
 ### Quyền riêng tư
 
@@ -82,6 +102,9 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | `Notes` | Kho ghi chú JSON cục bộ |
 | `Torch` | Điều khiển đèn flash |
 | `AddShortcutActivity` | Thêm shortcut ứng dụng vào menu |
+| `Snippets` | Lưu lịch sử clipboard và đoạn văn mẫu ghim sẵn |
+| `RulerView` | Vẽ lưới đo dp/px và tâm đo trên overlay |
+| `QrCode` | Bộ mã hoá QR thuần Java (byte mode, mức M, version 1–10) |
 | `AboutActivity` | Màn hình giấy phép và bản quyền |
 | `NotesActivity`, `StopwatchActivity`, `ConverterActivity` | Công cụ toàn màn hình |
 | `Ui`, `TouchFade` | Màu/khung, layout helper, ripple và animation |
