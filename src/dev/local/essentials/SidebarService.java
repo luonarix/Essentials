@@ -1290,6 +1290,9 @@ public class SidebarService extends Service {
     private int dragScrollStart;
     private LinearLayout dragColumn;
     private MaxScroll dragScroll;
+    private View menuThumb;
+    private View menuTopFade;
+    private View menuBottomFade;
 
     private LinearLayout buildMenu() {
         torchIcon = null;
@@ -1338,17 +1341,68 @@ public class SidebarService extends Service {
         MaxScroll tools = new MaxScroll(this);
         tools.setMaxHeight(maxHeight);
         tools.setFillViewport(false);
-        boolean scrollable = buttons.size() > MENU_ROWS;
-        tools.setVerticalScrollBarEnabled(scrollable);
-        tools.setScrollbarFadingEnabled(!scrollable);
-        tools.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
+        // No stock scrollbar: it is grey, inset and never lines up with the
+        // column. A slim accent thumb is drawn instead (see below).
+        tools.setVerticalScrollBarEnabled(false);
+        tools.setHorizontalScrollBarEnabled(false);
+        tools.setVerticalFadingEdgeEnabled(false);
+        tools.setHorizontalFadingEdgeEnabled(false);
         tools.setClipChildren(false);
         tools.addView(column, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        card.addView(tools, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        FrameLayout toolsWrap = new FrameLayout(this);
+        toolsWrap.setClipChildren(false);
+        toolsWrap.addView(tools, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        menuTopFade = edgeFade(true);
+        menuBottomFade = edgeFade(false);
+        FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(18));
+        tp.gravity = Gravity.TOP;
+        toolsWrap.addView(menuTopFade, tp);
+        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(18));
+        bp.gravity = Gravity.BOTTOM;
+        toolsWrap.addView(menuBottomFade, bp);
+
+        menuThumb = new View(this);
+        GradientDrawable thumbBg = new GradientDrawable();
+        thumbBg.setColor(0xB36E9BFF);
+        thumbBg.setCornerRadius(dp(2));
+        menuThumb.setBackground(thumbBg);
+        menuThumb.setVisibility(View.GONE);
+        FrameLayout.LayoutParams thp = new FrameLayout.LayoutParams(
+                Math.max(1, dp(2)), dp(24));
+        thp.gravity = Gravity.TOP | Gravity.END;
+        thp.rightMargin = dp(1);
+        toolsWrap.addView(menuThumb, thp);
+
+        // Fixed width keeps the overlay fades/thumb exactly on the column:
+        // a wrap-content FrameLayout would stretch MATCH_PARENT children to
+        // the whole available width.
+        card.addView(toolsWrap, new LinearLayout.LayoutParams(
+                dp(MENU_CELL_DP), ViewGroup.LayoutParams.WRAP_CONTENT));
         dragColumn = column;
         dragScroll = tools;
+
+        tools.setOnScrollChangeListener(new View.OnScrollChangeListener() {
+            public void onScrollChange(View v, int x, int y, int oldX, int oldY) {
+                updateMenuScrollUi();
+            }
+        });
+        tools.post(new Runnable() {
+            public void run() {
+                updateMenuScrollUi();
+            }
+        });
+        column.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            public void onLayoutChange(View v, int l, int t, int r, int b,
+                    int ol, int ot, int or, int ob) {
+                updateMenuScrollUi();
+            }
+        });
 
         View divider = new View(this);
         divider.setBackgroundColor(0x33FFFFFF);
@@ -1374,6 +1428,55 @@ public class SidebarService extends Service {
         paintCaffeine(false);
         for (String key : tabViews.keySet()) paintTabButton(key, true);
         return card;
+    }
+
+    /** Vertical gradient used to fade the tools into the menu edges. */
+    private View edgeFade(boolean top) {
+        View v = new View(this);
+        GradientDrawable g = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                top ? new int[]{GLASS, 0x00171C24}
+                        : new int[]{0x00171C24, GLASS});
+        v.setBackground(g);
+        v.setVisibility(View.GONE);
+        return v;
+    }
+
+    /**
+     * Sleek replacement for the stock scrollbar: a 2dp accent thumb centred on
+     * the same axis as the pinned add button, plus a fade at each edge that
+     * only appears when there is more content in that direction.
+     */
+    private void updateMenuScrollUi() {
+        MaxScroll s = dragScroll;
+        LinearLayout col = dragColumn;
+        View thumb = menuThumb;
+        if (s == null || col == null || thumb == null) return;
+        int track = s.getHeight();
+        int content = col.getHeight();
+        boolean scrollable = track > 0 && content > track + dp(1);
+        if (menuTopFade != null) {
+            menuTopFade.setVisibility(scrollable && s.getScrollY() > dp(2)
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (menuBottomFade != null) {
+            menuBottomFade.setVisibility(scrollable
+                    && s.getScrollY() < content - track - dp(2)
+                    ? View.VISIBLE : View.GONE);
+        }
+        if (!scrollable) {
+            thumb.setVisibility(View.GONE);
+            return;
+        }
+        thumb.setVisibility(View.VISIBLE);
+        int thumbH = Math.max(dp(24), Math.round(track * track / (float) content));
+        int travel = Math.max(0, track - thumbH);
+        int range = content - track;
+        int offset = range <= 0 ? 0 : Math.round(travel * (s.getScrollY() / (float) range));
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) thumb.getLayoutParams();
+        lp.height = thumbH;
+        lp.topMargin = offset;
+        thumb.setLayoutParams(lp);
     }
 
     /** Wires long-press drag so tools can be moved up or down the menu. */
@@ -2301,12 +2404,17 @@ public class SidebarService extends Service {
             try {
                 int w = frozen.getWidth();
                 int h = frozen.getHeight();
-                float rx = w / (float) Math.max(1, viewW);
-                float ry = h / (float) Math.max(1, viewH);
-                int l = clamp(Math.round(crop.left * rx), 0, w - 2);
-                int t = clamp(Math.round(crop.top * ry), 0, h - 2);
-                int r = clamp(Math.round(crop.right * rx), l + 2, w);
-                int b = clamp(Math.round(crop.bottom * ry), t + 2, h);
+                float scale = Math.min(viewW / (float) Math.max(1, w),
+                        viewH / (float) Math.max(1, h));
+                if (scale <= 0f) scale = 1f;
+                float drawnW = w * scale;
+                float drawnH = h * scale;
+                float offX = (viewW - drawnW) / 2f;
+                float offY = (viewH - drawnH) / 2f;
+                int l = clamp(Math.round((crop.left - offX) / scale), 0, w - 2);
+                int t = clamp(Math.round((crop.top - offY) / scale), 0, h - 2);
+                int r = clamp(Math.round((crop.right - offX) / scale), l + 2, w);
+                int b = clamp(Math.round((crop.bottom - offY) / scale), t + 2, h);
                 out = Bitmap.createBitmap(frozen, l, t, r - l, b - t);
             } catch (Exception ignored) {
                 out = frozen;
@@ -2404,10 +2512,14 @@ public class SidebarService extends Service {
 
     private void showShotPicker(final Bitmap frozen) {
         final FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF000000);
         if (frozen != null) {
             freezeBmp = frozen;
             ImageView still = new ImageView(this);
-            still.setScaleType(ImageView.ScaleType.FIT_XY);
+            // FIT_CENTER keeps the aspect ratio: stretching the frame to the
+            // window made the picture look squashed. The crop maths below uses
+            // the same fit so the saved region matches what is visible.
+            still.setScaleType(ImageView.ScaleType.FIT_CENTER);
             still.setImageBitmap(frozen);
             root.addView(still, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -2490,10 +2602,17 @@ public class SidebarService extends Service {
             }
         };
 
+        root.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
                 TYPE, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_FULLSCREEN
                 | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;

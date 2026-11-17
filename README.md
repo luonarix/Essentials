@@ -110,6 +110,10 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Menu cuộn thay vì chia cột**: khi có hơn 6 tiện ích, menu chỉ cao đúng 6
   nút và cuộn dọc, phần còn lại lướt tới. Cách này bỏ hẳn các cột phụ nên menu
   không còn rộng và tràn ra ngoài ở chế độ ngang; tab công cụ có thêm chỗ.
+- **Thanh cuộn riêng & viền mờ**: bỏ thanh cuộn xám mặc định, thay bằng một
+  vạch accent 2dp sát mép phải cột tiện ích, dài đúng phần đang cuộn và kết thúc
+  ngay trên vạch ngăn cách nút thêm. Mép trên/dưới cột có lớp mờ tan dần: chỉ
+  hiện phía còn nội dung để lướt, ẩn khi đã tới đầu hoặc cuối danh sách.
 - **Đổi thứ tự tiện ích**: nhấn giữ một icon trong menu rồi kéo lên hoặc xuống,
   các nút còn lại tự dồn chỗ; thả tay là lưu ngay vào thanh bên. Kéo tới sát
   mép trên/dưới thì danh sách tự cuộn.
@@ -118,6 +122,9 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Chọn vùng chụp trên khung đóng băng**: bấm *Chọn vùng* là màn hình được
   chụp lại ngay lúc đó rồi mới hiện khung kéo chọn, nên ảnh không còn lệch với
   thứ đang nhìn thấy và không bị chụp lại lần hai sau khi chọn.
+- **Khung chọn vùng full màn hình**: ẩn thanh thông báo và thanh điều hướng
+  trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
+  xác với khung đang nhìn.
 
 ### Quyền riêng tư
 
