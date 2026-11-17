@@ -3677,7 +3677,7 @@ public class SidebarService extends Service {
             }
         });
 
-        final TextView hint = Ui.text(this, "Giữ khoảng 1 giây để thoát", 11, 0x40FFFFFF, false);
+        final TextView hint = Ui.text(this, "Giữ lâu để thoát", 11, 0x40FFFFFF, false);
         hint.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
