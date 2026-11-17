@@ -110,10 +110,10 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Menu cuộn thay vì chia cột**: khi có hơn 6 tiện ích, menu chỉ cao đúng 6
   nút và cuộn dọc, phần còn lại lướt tới. Cách này bỏ hẳn các cột phụ nên menu
   không còn rộng và tràn ra ngoài ở chế độ ngang; tab công cụ có thêm chỗ.
-- **Thanh cuộn riêng & viền mờ**: bỏ thanh cuộn xám mặc định, thay bằng một
-  vạch accent 2dp sát mép phải cột tiện ích, dài đúng phần đang cuộn và kết thúc
-  ngay trên vạch ngăn cách nút thêm. Mép trên/dưới cột có lớp mờ tan dần: chỉ
-  hiện phía còn nội dung để lướt, ẩn khi đã tới đầu hoặc cuối danh sách.
+- **Không thanh cuộn, mờ ngay trên nút**: bỏ hẳn thanh cuộn xám mặc định.
+  Thay vì phủ một mảng gradient lên menu (dễ lộ vệt tối lệch màu nền), chính các
+  nút gần mép được giảm dần độ đậm: ở đầu danh sách chỉ nút phía dưới mờ dần, ở
+  giữa mờ cả hai phía, tới cuối danh sách chỉ còn nút phía trên mờ.
 - **Đổi thứ tự tiện ích**: nhấn giữ một icon trong menu rồi kéo lên hoặc xuống,
   các nút còn lại tự dồn chỗ; thả tay là lưu ngay vào thanh bên. Kéo tới sát
   mép trên/dưới thì danh sách tự cuộn.

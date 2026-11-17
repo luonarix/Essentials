@@ -1290,9 +1290,6 @@ public class SidebarService extends Service {
     private int dragScrollStart;
     private LinearLayout dragColumn;
     private MaxScroll dragScroll;
-    private View menuThumb;
-    private View menuTopFade;
-    private View menuBottomFade;
 
     private LinearLayout buildMenu() {
         torchIcon = null;
@@ -1341,48 +1338,18 @@ public class SidebarService extends Service {
         MaxScroll tools = new MaxScroll(this);
         tools.setMaxHeight(maxHeight);
         tools.setFillViewport(false);
-        // No stock scrollbar: it is grey, inset and never lines up with the
-        // column. A slim accent thumb is drawn instead (see below).
         tools.setVerticalScrollBarEnabled(false);
         tools.setHorizontalScrollBarEnabled(false);
+        // No stock scrollbar and no fade layer: the buttons themselves dim
+        // near the edges (see updateMenuScrollUi), so the fade always matches
+        // the real menu background instead of painting a darker patch on top.
         tools.setVerticalFadingEdgeEnabled(false);
         tools.setHorizontalFadingEdgeEnabled(false);
         tools.setClipChildren(false);
         tools.addView(column, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        FrameLayout toolsWrap = new FrameLayout(this);
-        toolsWrap.setClipChildren(false);
-        toolsWrap.addView(tools, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        menuTopFade = edgeFade(true);
-        menuBottomFade = edgeFade(false);
-        FrameLayout.LayoutParams tp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(18));
-        tp.gravity = Gravity.TOP;
-        toolsWrap.addView(menuTopFade, tp);
-        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(18));
-        bp.gravity = Gravity.BOTTOM;
-        toolsWrap.addView(menuBottomFade, bp);
-
-        menuThumb = new View(this);
-        GradientDrawable thumbBg = new GradientDrawable();
-        thumbBg.setColor(0xB36E9BFF);
-        thumbBg.setCornerRadius(dp(2));
-        menuThumb.setBackground(thumbBg);
-        menuThumb.setVisibility(View.GONE);
-        FrameLayout.LayoutParams thp = new FrameLayout.LayoutParams(
-                Math.max(1, dp(2)), dp(24));
-        thp.gravity = Gravity.TOP | Gravity.END;
-        thp.rightMargin = dp(1);
-        toolsWrap.addView(menuThumb, thp);
-
-        // Fixed width keeps the overlay fades/thumb exactly on the column:
-        // a wrap-content FrameLayout would stretch MATCH_PARENT children to
-        // the whole available width.
-        card.addView(toolsWrap, new LinearLayout.LayoutParams(
+        card.addView(tools, new LinearLayout.LayoutParams(
                 dp(MENU_CELL_DP), ViewGroup.LayoutParams.WRAP_CONTENT));
         dragColumn = column;
         dragScroll = tools;
@@ -1430,53 +1397,43 @@ public class SidebarService extends Service {
         return card;
     }
 
-    /** Vertical gradient used to fade the tools into the menu edges. */
-    private View edgeFade(boolean top) {
-        View v = new View(this);
-        GradientDrawable g = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                top ? new int[]{GLASS, 0x00171C24}
-                        : new int[]{0x00171C24, GLASS});
-        v.setBackground(g);
-        v.setVisibility(View.GONE);
-        return v;
-    }
-
     /**
-     * Sleek replacement for the stock scrollbar: a 2dp accent thumb centred on
-     * the same axis as the pinned add button, plus a fade at each edge that
-     * only appears when there is more content in that direction.
+     * Fades the menu buttons themselves near the scroll edges: only the side
+     * that still has hidden content is faded, so the top row stays solid when
+     * the list is at the top and the bottom row stays solid at the end.
      */
     private void updateMenuScrollUi() {
         MaxScroll s = dragScroll;
         LinearLayout col = dragColumn;
-        View thumb = menuThumb;
-        if (s == null || col == null || thumb == null) return;
+        if (s == null || col == null) return;
         int track = s.getHeight();
         int content = col.getHeight();
-        boolean scrollable = track > 0 && content > track + dp(1);
-        if (menuTopFade != null) {
-            menuTopFade.setVisibility(scrollable && s.getScrollY() > dp(2)
-                    ? View.VISIBLE : View.GONE);
+        int count = col.getChildCount();
+        if (track <= 0 || count == 0) return;
+
+        int scroll = s.getScrollY();
+        int maxScroll = Math.max(0, content - track);
+        boolean scrollable = content > track + dp(1);
+        boolean hasTop = scrollable && scroll > dp(2);
+        boolean hasBottom = scrollable && scroll < maxScroll - dp(2);
+        float zone = Math.max(1f, dp(44));
+        float min = 0.15f;
+
+        for (int i = 0; i < count; i++) {
+            View c = col.getChildAt(i);
+            if (c == dragView) continue;
+            if (!scrollable) {
+                c.setAlpha(1f);
+                continue;
+            }
+            float center = c.getTop() + c.getHeight() / 2f - scroll;
+            float topF = hasTop
+                    ? Math.max(0f, Math.min(1f, center / zone)) : 1f;
+            float bottomF = hasBottom
+                    ? Math.max(0f, Math.min(1f, (track - center) / zone)) : 1f;
+            float a = Math.min(topF, bottomF);
+            c.setAlpha(min + (1f - min) * a);
         }
-        if (menuBottomFade != null) {
-            menuBottomFade.setVisibility(scrollable
-                    && s.getScrollY() < content - track - dp(2)
-                    ? View.VISIBLE : View.GONE);
-        }
-        if (!scrollable) {
-            thumb.setVisibility(View.GONE);
-            return;
-        }
-        thumb.setVisibility(View.VISIBLE);
-        int thumbH = Math.max(dp(24), Math.round(track * track / (float) content));
-        int travel = Math.max(0, track - thumbH);
-        int range = content - track;
-        int offset = range <= 0 ? 0 : Math.round(travel * (s.getScrollY() / (float) range));
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) thumb.getLayoutParams();
-        lp.height = thumbH;
-        lp.topMargin = offset;
-        thumb.setLayoutParams(lp);
     }
 
     /** Wires long-press drag so tools can be moved up or down the menu. */
