@@ -1992,12 +1992,28 @@ public class SidebarService extends Service {
             if (dm.widthPixels > 0 && dm.heightPixels > 0
                     && (dm.widthPixels != out.getWidth()
                     || dm.heightPixels != out.getHeight())) {
-                float sx = out.getWidth() / (float) dm.widthPixels;
-                float sy = out.getHeight() / (float) dm.heightPixels;
-                c.left = Math.round(c.left * sx);
-                c.top = Math.round(c.top * sy);
-                c.right = Math.round(c.right * sx);
-                c.bottom = Math.round(c.bottom * sy);
+                float rx = out.getWidth() / (float) dm.widthPixels;
+                float ry = out.getHeight() / (float) dm.heightPixels;
+                if (Math.abs(rx - ry) < 0.01f) {
+                    // Uniformly downscaled screenshot: scale the rectangle.
+                    c.left = Math.round(c.left * rx);
+                    c.top = Math.round(c.top * ry);
+                    c.right = Math.round(c.right * rx);
+                    c.bottom = Math.round(c.bottom * ry);
+                } else {
+                    // The bitmap is the display minus one or more system bars,
+                    // so it still starts at the top-left corner. Only the
+                    // status bar moves the origin downwards.
+                    int statusH = systemBarHeight("status_bar_height");
+                    int navH = systemBarHeight("navigation_bar_height");
+                    int lostH = dm.heightPixels - out.getHeight();
+                    if (statusH > 0 && (Math.abs(lostH - statusH) <= dp(2)
+                            || (navH > 0
+                            && Math.abs(lostH - statusH - navH) <= dp(2)))) {
+                        c.top -= statusH;
+                        c.bottom -= statusH;
+                    }
+                }
             }
             c.left = Math.max(0, Math.min(c.left, out.getWidth() - 2));
             c.top = Math.max(0, Math.min(c.top, out.getHeight() - 2));
@@ -3829,6 +3845,12 @@ public class SidebarService extends Service {
             restoreHandleAfterCapture();
             if (panel == null) openMenu();
         }
+    }
+
+    /** Height of a framework system bar in pixels, or 0 if unavailable. */
+    private int systemBarHeight(String name) {
+        int id = getResources().getIdentifier(name, "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
     }
 
     private int dp(float v) {
