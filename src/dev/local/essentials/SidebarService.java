@@ -80,6 +80,12 @@ public class SidebarService extends Service {
     private static final int ANIM_MS = 220;
     /** Tabs fade/slide in and out with the same duration, mirrored. */
     private static final int TAB_ANIM_MS = 220;
+    private static final int TOGGLE_GREEN = 0xFF6FE3A1;
+    private static final int TOGGLE_GREEN_BOX = 0x336FE3A1;
+    private static final int TOGGLE_CYAN = 0xFF27D3E0;
+    private static final int TOGGLE_CYAN_BOX = 0x3327D3E0;
+    private static final int TOGGLE_AMBER = 0xFFFFB05A;
+    private static final int TOGGLE_AMBER_BOX = 0x33FFB05A;
     private static final int EDGE_INSET_DP = 10;
     private static final int PANEL_INSET_DP = 42;
 
@@ -193,6 +199,11 @@ public class SidebarService extends Service {
     private View torchBox;
     private int iconTint = Ui.ACCENT;
     private int boxTint = ITEM_BG_SOFT;
+
+    private final Map<String, ImageView> toggleIcons = new LinkedHashMap<>();
+    private final Map<String, View> toggleBoxes = new LinkedHashMap<>();
+    private final Map<String, Integer> toggleIconTint = new LinkedHashMap<>();
+    private final Map<String, Integer> toggleBoxTint = new LinkedHashMap<>();
 
     private ImageView caffeineIcon;
     private View caffeineBox;
@@ -1270,6 +1281,10 @@ public class SidebarService extends Service {
         caffeineBox = null;
         caffeineIconTint = Ui.ACCENT;
         caffeineBoxTint = ITEM_BG_SOFT;
+        toggleIcons.clear();
+        toggleBoxes.clear();
+        toggleIconTint.clear();
+        toggleBoxTint.clear();
 
         List<View> buttons = new ArrayList<>();
         menuButtons.clear();
@@ -1455,11 +1470,103 @@ public class SidebarService extends Service {
                 return null;
         }
 
-        return iconButton(iconRes, Side.labelOf(id), new View.OnClickListener() {
+        View.OnClickListener click = new View.OnClickListener() {
             public void onClick(View v) {
                 perform(id);
             }
-        }, ITEM_BG_SOFT);
+        };
+        if (statefulToggle(id)) {
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(iconRes);
+            View box = iconButton(icon, Side.labelOf(id), click, ITEM_BG_SOFT);
+            toggleIcons.put(id, icon);
+            toggleBoxes.put(id, box);
+            toggleIconTint.put(id, Ui.ACCENT);
+            toggleBoxTint.put(id, ITEM_BG_SOFT);
+            paintToggle(id, toggleOn(id), false);
+            return box;
+        }
+        return iconButton(iconRes, Side.labelOf(id), click, ITEM_BG_SOFT);
+    }
+
+    private boolean statefulToggle(String id) {
+        return "#hud".equals(id) || "#crosshair".equals(id)
+                || "#brightness".equals(id) || "#rotate".equals(id)
+                || "#dnd".equals(id);
+    }
+
+    private boolean toggleOn(String id) {
+        if ("#hud".equals(id)) return hudView != null;
+        if ("#crosshair".equals(id)) return crosshairView != null;
+        if ("#brightness".equals(id)) return lockPrefs().getBoolean("bright", false);
+        if ("#rotate".equals(id)) return lockPrefs().getBoolean("rotate", false);
+        if ("#dnd".equals(id)) return dndOn();
+        return false;
+    }
+
+    private boolean dndOn() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm == null || !nm.isNotificationPolicyAccessGranted()) return false;
+        try {
+            int filter = nm.getCurrentInterruptionFilter();
+            return filter != NotificationManager.INTERRUPTION_FILTER_ALL
+                    && filter != NotificationManager.INTERRUPTION_FILTER_UNKNOWN;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private int toggleColor(String id) {
+        if ("#crosshair".equals(id)) return TOGGLE_CYAN;
+        if ("#dnd".equals(id)) return TOGGLE_AMBER;
+        return TOGGLE_GREEN;
+    }
+
+    private int toggleBoxColor(String id) {
+        if ("#crosshair".equals(id)) return TOGGLE_CYAN_BOX;
+        if ("#dnd".equals(id)) return TOGGLE_AMBER_BOX;
+        return TOGGLE_GREEN_BOX;
+    }
+
+    /** Colours a toggle menu icon green/cyan/amber while the feature is on. */
+    private void paintToggle(String id, boolean on, boolean animate) {
+        final ImageView icon = toggleIcons.get(id);
+        final View box = toggleBoxes.get(id);
+        if (icon == null || box == null) return;
+        final int iconTo = on ? toggleColor(id) : Ui.ACCENT;
+        final int boxTo = on ? toggleBoxColor(id) : ITEM_BG_SOFT;
+
+        if (!animate) {
+            toggleIconTint.put(id, iconTo);
+            toggleBoxTint.put(id, boxTo);
+            icon.setColorFilter(iconTo);
+            setBoxColor(box, boxTo);
+            return;
+        }
+
+        Integer storedIcon = toggleIconTint.get(id);
+        Integer storedBox = toggleBoxTint.get(id);
+        final int iconFrom = storedIcon == null ? Ui.ACCENT : storedIcon;
+        final int boxFrom = storedBox == null ? ITEM_BG_SOFT : storedBox;
+        final String key = id;
+        ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
+        a.setDuration(180);
+        a.setInterpolator(new DecelerateInterpolator());
+        a.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            public void onAnimationUpdate(ValueAnimator va) {
+                float t = va.getAnimatedFraction();
+                int iconColor = blend(iconFrom, iconTo, t);
+                int boxColor = blend(boxFrom, boxTo, t);
+                toggleIconTint.put(key, iconColor);
+                toggleBoxTint.put(key, boxColor);
+                ImageView currentIcon = toggleIcons.get(key);
+                View currentBox = toggleBoxes.get(key);
+                if (currentIcon != null) currentIcon.setColorFilter(iconColor);
+                if (currentBox != null) setBoxColor(currentBox, boxColor);
+            }
+        });
+        a.start();
+        Ui.pop(box);
     }
 
     private void perform(String id) {
@@ -2844,6 +2951,7 @@ public class SidebarService extends Service {
         }
 
         Side.setHudOn(this, true);
+        paintToggle("#hud", true, true);
         hudHiding = false;
         applyKeepAwake(keepAwake);
         Stats.cpu(); // prime the /proc/stat delta
@@ -2866,6 +2974,7 @@ public class SidebarService extends Service {
         handler.removeCallbacks(hudTick);
         handler.removeCallbacks(hudLongPress);
         Side.setHudOn(this, false);
+        paintToggle("#hud", false, true);
         final TextView v = hudView;
         if (v == null) {
             hudParams = null;
@@ -4080,6 +4189,7 @@ public class SidebarService extends Service {
             return;
         }
         Crosshair.setEnabled(this, true);
+        paintToggle("#crosshair", true, true);
         if (announce) toast("Đã bật tâm ngắm · mở tab để tinh chỉnh");
     }
 
@@ -4114,6 +4224,7 @@ public class SidebarService extends Service {
     private void removeCrosshair(boolean announce) {
         detachCrosshair();
         Crosshair.setEnabled(this, false);
+        paintToggle("#crosshair", false, true);
         if (announce) toast("Đã tắt tâm ngắm");
     }
 
@@ -4450,6 +4561,7 @@ public class SidebarService extends Service {
         } catch (Exception e) {
             toast("Hệ thống chặn đổi độ sáng");
         }
+        paintToggle("#brightness", lockPrefs().getBoolean("bright", false), true);
     }
 
     private void toggleRotationLock() {
@@ -4474,6 +4586,7 @@ public class SidebarService extends Service {
         } catch (Exception e) {
             toast("Hệ thống chặn đổi hướng xoay");
         }
+        paintToggle("#rotate", lockPrefs().getBoolean("rotate", false), true);
     }
 
     private void toggleDnd() {
@@ -4501,6 +4614,7 @@ public class SidebarService extends Service {
         } catch (Exception e) {
             toast("Hệ thống chặn đổi Không làm phiền");
         }
+        paintToggle("#dnd", dndOn(), true);
     }
 
     // ------------------------------------------------------------ ruler overlay

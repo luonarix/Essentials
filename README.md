@@ -90,6 +90,9 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   hoặc ngang), chạm lần nữa bật lại tự động xoay.
 - **Không làm phiền** (`#dnd`): bật chế độ ưu tiên của hệ thống để chặn thông
   báo nổi; chạm lần nữa trả về bình thường.
+- **Trạng thái bật/tắt trên menu**: các nút HUD, tâm ngắm, khoá độ sáng, khoá
+  xoay và Không làm phiền đổi màu ngay trên menu khi đang bật (xanh lá; tâm ngắm
+  xanh ngọc; Không làm phiền màu cam), tắt thì trở lại màu mặc định.
 - **HUD nhiệt độ**: HUD hiện thêm nhiệt độ pin. Từ **40°C** chữ chuyển màu cam,
   từ **42°C** chuyển đỏ để biết lúc máy bắt đầu bóp hiệu năng.
 
