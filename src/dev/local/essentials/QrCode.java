@@ -3,7 +3,7 @@ package dev.local.essentials;
 import java.nio.charset.Charset;
 
 /**
- * Minimal QR Code encoder: byte mode, error correction level M, versions 1-10.
+ * Minimal QR Code encoder: byte mode, error correction level M, versions 1-40.
  *
  * <p>Everything is generated locally with the arithmetic from ISO/IEC 18004
  * (Reed-Solomon over GF(256), mask patterns and penalty scoring), so no
@@ -13,26 +13,70 @@ final class QrCode {
 
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
-    /** Total data codewords for versions 1..10 (index 0 unused). */
-    private static final int[] DATA_CODEWORDS = {
-            0, 16, 28, 44, 64, 86, 108, 124, 154, 182, 216
+    static final int MIN_VERSION = 1;
+    static final int MAX_VERSION = 40;
+
+    /** Error correction codewords per block, level M, versions 1..40. */
+    private static final int[] ECC_M = {
+            10, 16, 26, 18, 24, 16, 18, 22, 22, 26,
+            30, 22, 22, 24, 24, 28, 28, 26, 26, 26,
+            26, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+            28, 28, 28, 28, 28, 28, 28, 28, 28, 28
     };
 
-    /** Error correction codewords per block, level M. */
-    private static final int[] ECC_PER_BLOCK = {
-            0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26
+    /** Number of Reed-Solomon blocks, level M, versions 1..40. */
+    private static final int[] BLOCKS_M = {
+            1, 1, 1, 2, 2, 4, 4, 4, 5, 5,
+            5, 8, 9, 9, 10, 10, 11, 13, 14, 16,
+            17, 17, 18, 20, 21, 23, 25, 26, 28, 29,
+            31, 33, 35, 37, 38, 40, 43, 45, 47, 49
     };
 
-    /** Number of Reed-Solomon blocks, level M. */
-    private static final int[] BLOCKS = {
-            0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5
-    };
+    /** Total data codewords, versions 1..40 (index 0 unused). */
+    private static final int[] DATA_CODEWORDS = new int[MAX_VERSION + 1];
 
-    /** Alignment pattern centre coordinates, versions 2..10. */
-    private static final int[][] ALIGN = {
-            {}, {}, {6, 18}, {6, 22}, {6, 26}, {6, 30}, {6, 34},
-            {6, 22, 38}, {6, 24, 42}, {6, 26, 46}, {6, 28, 50}
-    };
+    /** Error correction codewords per block, level M (index 0 unused). */
+    private static final int[] ECC_PER_BLOCK = new int[MAX_VERSION + 1];
+
+    /** Number of Reed-Solomon blocks, level M (index 0 unused). */
+    private static final int[] BLOCKS = new int[MAX_VERSION + 1];
+
+    /** Alignment pattern centre coordinates, versions 1..40. */
+    private static final int[][] ALIGN = new int[MAX_VERSION + 1][];
+
+    static {
+        for (int v = MIN_VERSION; v <= MAX_VERSION; v++) {
+            int ecc = ECC_M[v - 1];
+            int blocks = BLOCKS_M[v - 1];
+            ECC_PER_BLOCK[v] = ecc;
+            BLOCKS[v] = blocks;
+            DATA_CODEWORDS[v] = rawDataModules(v) / 8 - ecc * blocks;
+            ALIGN[v] = alignPositions(v);
+        }
+    }
+
+    /** Number of data + error correction bits available in a symbol. */
+    private static int rawDataModules(int version) {
+        int result = (16 * version + 128) * version + 64;
+        if (version >= 2) {
+            int numAlign = version / 7 + 2;
+            result -= (25 * numAlign - 10) * numAlign - 55;
+            if (version >= 7) result -= 36;
+        }
+        return result;
+    }
+
+    private static int[] alignPositions(int version) {
+        if (version == 1) return new int[0];
+        int numAlign = version / 7 + 2;
+        int step = version == 32 ? 26
+                : (version * 4 + numAlign * 2 + 1) / (numAlign * 2 - 2) * 2;
+        int[] out = new int[numAlign];
+        out[0] = 6;
+        int pos = version * 4 + 17 - 7;
+        for (int i = numAlign - 1; i >= 1; i--, pos -= step) out[i] = pos;
+        return out;
+    }
 
     private static final int[] EXP = new int[512];
     private static final int[] LOG = new int[256];
@@ -50,9 +94,9 @@ final class QrCode {
 
     private QrCode() {}
 
-    /** Largest payload accepted in byte mode at version 10 / level M. */
+    /** Largest payload accepted in byte mode at version 40 / level M. */
     static int maxBytes() {
-        return DATA_CODEWORDS[10] - 3;
+        return DATA_CODEWORDS[MAX_VERSION] - 3;
     }
 
     static boolean fits(String text) {
@@ -110,7 +154,7 @@ final class QrCode {
     }
 
     private static int versionFor(int length) {
-        for (int v = 1; v <= 10; v++) {
+        for (int v = MIN_VERSION; v <= MAX_VERSION; v++) {
             int countBits = v <= 9 ? 8 : 16;
             if (4 + countBits + length * 8 <= DATA_CODEWORDS[v] * 8) return v;
         }

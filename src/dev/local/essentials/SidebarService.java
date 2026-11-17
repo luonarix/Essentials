@@ -13,6 +13,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -30,6 +31,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -221,6 +223,8 @@ public class SidebarService extends Service {
         Side.ensureToolkit8(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        lastConfigW = getResources().getDisplayMetrics().widthPixels;
+        lastConfigH = getResources().getDisplayMetrics().heightPixels;
         startForegroundSafe();
         if (!addHandle()) {
             toast("Không tạo được thanh bên");
@@ -246,6 +250,58 @@ public class SidebarService extends Service {
             }, 300);
         }
         return START_STICKY;
+    }
+
+    /**
+     * Screen rotation changes the display bounds; the handle and its tucked
+     * geometry are rebuilt from scratch so the bar keeps the same thickness in
+     * portrait and landscape. Open panels and overlays are dismissed because
+     * their old coordinates no longer match the display.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        int w = getResources().getDisplayMetrics().widthPixels;
+        int h = getResources().getDisplayMetrics().heightPixels;
+        if (w == lastConfigW && h == lastConfigH) return;
+        lastConfigW = w;
+        lastConfigH = h;
+        resetSidebar();
+    }
+
+    private void resetSidebar() {
+        handler.removeCallbacksAndMessages(null);
+        if (handleAnim != null) {
+            handleAnim.cancel();
+            handleAnim = null;
+        }
+        removeShotPicker();
+        removeTouchLock(false);
+        closeColorPicker(false);
+        stopRuler(false);
+        stopBlackScreen(false);
+        detachHud();
+        hideNow();
+        if (handle != null) {
+            try {
+                wm.removeView(handle);
+            } catch (Exception ignored) {
+            }
+            handle = null;
+        }
+
+        tucked = false;
+        untuckingAtDown = false;
+        shotBusy = false;
+        Side.setPos(this, -1);
+
+        if (!addHandle()) {
+            toast("Không tạo lại được thanh bên");
+            return;
+        }
+        applyKeepAwake(keepAwake);
+        scheduleTuck();
+        if (Side.hudOn(this)) addHud(false);
     }
 
     @Override
@@ -591,13 +647,11 @@ public class SidebarService extends Service {
     }
 
     /**
-     * Width of the tucked sliver. Everything is in dp so the physical size is
-     * identical on every screen; on very wide panels it grows slightly, which
-     * keeps the proportions readable. Never thinner than HANDLE_BAR_DP.
+     * Width of the tucked sliver. A fixed dp size keeps it identical in
+     * portrait and landscape, and on every screen density.
      */
     private int tuckBarPx() {
-        int byWidth = Math.round(screenW() * 0.030f);
-        return Math.max(dp(HANDLE_BAR_DP), byWidth);
+        return dp(HANDLE_BAR_DP);
     }
 
     private static int clamp(int v, int min, int max) {
@@ -1866,6 +1920,8 @@ public class SidebarService extends Service {
 
     private View pickRoot;
     private boolean shotBusy;
+    private int lastConfigW = -1;
+    private int lastConfigH = -1;
 
     private void startShotAction(final boolean region) {
         if (!ShotService.ready()) {
@@ -1922,6 +1978,27 @@ public class SidebarService extends Service {
         Bitmap out = bmp;
         if (crop != null) {
             Rect c = new Rect(crop);
+            // The picker reports physical screen coordinates, but the
+            // accessibility screenshot can be captured at a different size
+            // (system bars, cutouts, reduced-resolution screenshots). Map the
+            // rectangle onto the bitmap instead of assuming 1:1 pixels, which
+            // used to shift the result upwards on some displays.
+            DisplayMetrics dm = new DisplayMetrics();
+            try {
+                wm.getDefaultDisplay().getRealMetrics(dm);
+            } catch (Exception e) {
+                dm = getResources().getDisplayMetrics();
+            }
+            if (dm.widthPixels > 0 && dm.heightPixels > 0
+                    && (dm.widthPixels != out.getWidth()
+                    || dm.heightPixels != out.getHeight())) {
+                float sx = out.getWidth() / (float) dm.widthPixels;
+                float sy = out.getHeight() / (float) dm.heightPixels;
+                c.left = Math.round(c.left * sx);
+                c.top = Math.round(c.top * sy);
+                c.right = Math.round(c.right * sx);
+                c.bottom = Math.round(c.bottom * sy);
+            }
             c.left = Math.max(0, Math.min(c.left, out.getWidth() - 2));
             c.top = Math.max(0, Math.min(c.top, out.getHeight() - 2));
             c.right = Math.max(c.left + 2, Math.min(c.right, out.getWidth()));
@@ -2043,7 +2120,9 @@ public class SidebarService extends Service {
         private final Paint dim = new Paint();
         private final Paint border = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF sel = new RectF();
+        private final RectF rawSel = new RectF();
         private float startX, startY;
+        private float rawStartX, rawStartY;
         private boolean dragging;
         Runnable onSelection;
 
@@ -2076,7 +2155,10 @@ public class SidebarService extends Service {
                 case MotionEvent.ACTION_DOWN:
                     startX = e.getX();
                     startY = e.getY();
+                    rawStartX = e.getRawX();
+                    rawStartY = e.getRawY();
                     sel.set(startX, startY, startX, startY);
+                    rawSel.set(rawStartX, rawStartY, rawStartX, rawStartY);
                     dragging = true;
                     invalidate();
                     return true;
@@ -2084,6 +2166,10 @@ public class SidebarService extends Service {
                     if (!dragging) return true;
                     sel.set(Math.min(startX, e.getX()), Math.min(startY, e.getY()),
                             Math.max(startX, e.getX()), Math.max(startY, e.getY()));
+                    rawSel.set(Math.min(rawStartX, e.getRawX()),
+                            Math.min(rawStartY, e.getRawY()),
+                            Math.max(rawStartX, e.getRawX()),
+                            Math.max(rawStartY, e.getRawY()));
                     invalidate();
                     return true;
                 case MotionEvent.ACTION_UP:
@@ -2099,9 +2185,11 @@ public class SidebarService extends Service {
         }
 
         Rect selection() {
-            if (sel.width() < 2 || sel.height() < 2) return null;
-            return new Rect(Math.round(sel.left), Math.round(sel.top),
-                    Math.round(sel.right), Math.round(sel.bottom));
+            if (rawSel.width() < 2 || rawSel.height() < 2) return null;
+            // Raw coordinates are in display space, unaffected by any window
+            // origin offset introduced by the overlay flags.
+            return new Rect(Math.round(rawSel.left), Math.round(rawSel.top),
+                    Math.round(rawSel.right), Math.round(rawSel.bottom));
         }
     }
 
@@ -3481,7 +3569,9 @@ public class SidebarService extends Service {
         card.addView(input, ip);
 
         final ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        // CENTER keeps the modules on exact pixel boundaries; FIT_CENTER would
+        // blur large symbols when it scales them up to the view.
+        image.setScaleType(ImageView.ScaleType.CENTER);
         image.setBackground(Ui.bg(0xFFFFFFFF, this, 12));
         image.setPadding(dp(6), dp(6), dp(6), dp(6));
         int side = dp(228);
@@ -3528,8 +3618,8 @@ public class SidebarService extends Service {
         return card;
     }
 
-    private void renderQr(ImageView view, TextView status, String text) {
-        String value = text == null ? "" : text.trim();
+    private void renderQr(final ImageView view, final TextView status, String text) {
+        final String value = text == null ? "" : text.trim();
         if (value.isEmpty()) {
             toast("Chưa có nội dung");
             return;
@@ -3539,35 +3629,58 @@ public class SidebarService extends Service {
             status.setTextColor(0xFFFF7A7A);
             return;
         }
-        try {
-            boolean[][] modules = QrCode.encode(value);
-            int n = modules.length;
-            int quiet = 4;
-            int target = dp(216);
-            int scale = Math.max(1, target / (n + quiet * 2));
-            int px = (n + quiet * 2) * scale;
-            Bitmap bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bmp);
-            canvas.drawColor(0xFFFFFFFF);
-            Paint paint = new Paint();
-            paint.setColor(0xFF000000);
-            for (int y = 0; y < n; y++) {
-                for (int x = 0; x < n; x++) {
-                    if (modules[y][x]) {
-                        int left = (x + quiet) * scale;
-                        int top = (y + quiet) * scale;
-                        canvas.drawRect(left, top, left + scale, top + scale, paint);
+        status.setTextColor(Ui.MUTED);
+        status.setText("Đang tạo mã QR...");
+        // Large symbols need eight mask trials; build them off the UI thread so
+        // the dock does not freeze for a second on the biggest payloads.
+        new Thread(new Runnable() {
+            public void run() {
+                Bitmap bmp = null;
+                int n = 0;
+                int bytes = 0;
+                try {
+                    bytes = value.getBytes("UTF-8").length;
+                    boolean[][] modules = QrCode.encode(value);
+                    n = modules.length;
+                    int quiet = 4;
+                    int target = dp(216);
+                    int scale = Math.max(1, target / (n + quiet * 2));
+                    int px = (n + quiet * 2) * scale;
+                    bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+                    Canvas canvas = new Canvas(bmp);
+                    canvas.drawColor(0xFFFFFFFF);
+                    Paint paint = new Paint();
+                    paint.setColor(0xFF000000);
+                    for (int y = 0; y < n; y++) {
+                        for (int x = 0; x < n; x++) {
+                            if (modules[y][x]) {
+                                int left = (x + quiet) * scale;
+                                int top = (y + quiet) * scale;
+                                canvas.drawRect(left, top, left + scale, top + scale, paint);
+                            }
+                        }
                     }
+                } catch (Throwable t) {
+                    bmp = null;
                 }
+                final Bitmap image = bmp;
+                final int size = n;
+                final int count = bytes;
+                handler.post(new Runnable() {
+                    public void run() {
+                        if (image == null) {
+                            status.setTextColor(0xFFFF7A7A);
+                            status.setText("Không tạo được mã QR");
+                            return;
+                        }
+                        view.setImageBitmap(image);
+                        status.setTextColor(Ui.MUTED);
+                        status.setText("QR " + size + "×" + size + " · "
+                                + count + " byte");
+                    }
+                });
             }
-            view.setImageBitmap(bmp);
-            status.setTextColor(Ui.MUTED);
-            status.setText("QR " + n + "×" + n + " · "
-                    + value.getBytes("UTF-8").length + " byte");
-        } catch (Exception e) {
-            status.setTextColor(0xFFFF7A7A);
-            status.setText("Không tạo được mã QR");
-        }
+        }, "qr-encode").start();
     }
 
     // ------------------------------------------------------------ shared bits

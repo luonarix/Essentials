@@ -22,6 +22,8 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 - Tay nắm nổi ở mép phải, kéo dọc để đổi vị trí (tự lưu), chạm để mở/đóng dock.
 - **Tự thu vào mép** sau 3 giây: thu còn một vạch mảnh, mờ 50%, vẫn kéo được.
+- **Xoay màn hình**: thanh bên tự đặt lại về giữa; vạch thu vào mép giữ nguyên
+  độ dày ở cả chiều dọc và chiều ngang.
 - **Menu luôn hiện** khi dock mở. Mở công cụ không làm menu biến mất.
 - **Nhiều tab cùng lúc**: Ghi chú, Ghi chú nhanh, Âm lượng, Chụp màn hình,
   Sửa thanh bên, Chi tiết ghi chú — xếp dọc trong cột cuộn được.
@@ -55,10 +57,20 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   bộ nhớ đệm. Dữ liệu nằm cục bộ, không gửi đi đâu.
 - **Màn hình đen** (`#black`): phủ một lớp đen tuyền `#000000` giữ cho app bên
   dưới vẫn chạy, giữ màn hình sáng để nghe nhạc hoặc chạy tiến trình dài mà
-  không lộ sáng ban đêm. Giữ khoảng 1 giây ở bất kỳ đâu để thoát.
+  không lộ sáng ban đêm. Giữ lâu ở bất kỳ đâu để thoát.
 - **Mã QR offline** (`#qr`): dựng mã QR từ văn bản hoặc clipboard ngay trên máy,
-  không cần mạng và không dùng thư viện ngoài. Hỗ trợ tới 213 byte (byte mode,
-  mức sửa lỗi M, phiên bản 1–10).
+  không cần mạng và không dùng thư viện ngoài. Hỗ trợ tới **2331 byte** (byte
+  mode, mức sửa lỗi M, phiên bản 1–40); mã lớn được dựng ở luồng nền nên dock
+  không bị đứng.
+
+### Bản 8.1
+
+- **Chụp vùng**: vùng chọn dùng toạ độ màn hình thật và được quy đổi theo kích
+  thước ảnh chụp, sửa lỗi ảnh thành phẩm bị lệch lên trên.
+- **QR**: nâng giới hạn từ 213 lên 2331 byte (phiên bản 1–40), vẫn mã hoá hoàn
+  toàn offline.
+- **Xoay màn hình**: thanh bên và tay nắm được tạo lại theo kích thước mới; vạch
+  ẩn không còn dày hơn khi sang ngang.
 
 ### Quyền riêng tư
 
@@ -104,7 +116,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | `AddShortcutActivity` | Thêm shortcut ứng dụng vào menu |
 | `Snippets` | Lưu lịch sử clipboard và đoạn văn mẫu ghim sẵn |
 | `RulerView` | Vẽ lưới đo dp/px và tâm đo trên overlay |
-| `QrCode` | Bộ mã hoá QR thuần Java (byte mode, mức M, version 1–10) |
+| `QrCode` | Bộ mã hoá QR thuần Java (byte mode, mức M, version 1–40) |
 | `AboutActivity` | Màn hình giấy phép và bản quyền |
 | `NotesActivity`, `StopwatchActivity`, `ConverterActivity` | Công cụ toàn màn hình |
 | `Ui`, `TouchFade` | Màu/khung, layout helper, ripple và animation |
