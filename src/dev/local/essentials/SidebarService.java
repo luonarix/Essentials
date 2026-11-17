@@ -1287,6 +1287,7 @@ public class SidebarService extends Service {
     private int dragBaseIndex = -1;
     private float dragBaseRawY;
     private float dragTouchRawY;
+    private float dragGrabOffset;
     private int dragScrollStart;
     private LinearLayout dragColumn;
     private MaxScroll dragScroll;
@@ -1479,8 +1480,14 @@ public class SidebarService extends Service {
         dragBaseIndex = dragIndex;
         dragBaseRawY = dragTouchRawY;
         dragScrollStart = dragScroll == null ? 0 : dragScroll.getScrollY();
-        v.setAlpha(0.82f);
-        v.animate().scaleX(0.94f).scaleY(0.94f).setDuration(90).start();
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+        dragGrabOffset = dragTouchRawY - loc[1];
+        v.setAlpha(0.92f);
+        v.setTranslationZ(dp(10));
+        v.animate().scaleX(1.06f).scaleY(1.06f)
+                .setDuration(110)
+                .setInterpolator(new DecelerateInterpolator(2f)).start();
         if (dragScroll != null) {
             dragScroll.requestDisallowInterceptTouchEvent(true);
         }
@@ -1492,6 +1499,14 @@ public class SidebarService extends Service {
     private void moveDrag(float rawY) {
         if (dragView == null || dragColumn == null) return;
         int pitch = Math.max(1, dp(MENU_CELL_DP + MENU_GAP_DP));
+
+        // Keep the lifted button under the finger even when its slot changes
+        // or the list auto-scrolls, so the drag feels continuous.
+        int[] loc = new int[2];
+        dragView.getLocationOnScreen(loc);
+        dragView.setTranslationY(dragView.getTranslationY()
+                + (rawY - dragGrabOffset - loc[1]));
+
         int scrolled = (dragScroll == null ? 0 : dragScroll.getScrollY()) - dragScrollStart;
         int count = dragColumn.getChildCount();
         int target = dragBaseIndex
@@ -1502,23 +1517,39 @@ public class SidebarService extends Service {
             View sibling = dragColumn.getChildAt(dragIndex + 1);
             dragColumn.removeView(sibling);
             dragColumn.addView(sibling, dragIndex);
+            slideToSlot(sibling, pitch);
             dragIndex++;
         }
         while (dragIndex > target && dragIndex - 1 >= 0) {
             View sibling = dragColumn.getChildAt(dragIndex - 1);
             dragColumn.removeView(sibling);
             dragColumn.addView(sibling, dragIndex);
+            slideToSlot(sibling, -pitch);
             dragIndex--;
         }
 
         if (dragScroll != null) {
-            int[] loc = new int[2];
-            dragScroll.getLocationOnScreen(loc);
-            int top = loc[1];
+            int[] sloc = new int[2];
+            dragScroll.getLocationOnScreen(sloc);
+            int top = sloc[1];
             int bottom = top + dragScroll.getHeight();
             if (rawY < top + dp(46)) dragScroll.scrollBy(0, -dp(6));
             else if (rawY > bottom - dp(46)) dragScroll.scrollBy(0, dp(6));
         }
+    }
+
+    /**
+     * Makes a neighbour appear to slide from its old slot into the new one:
+     * the layout already moved it, so a matching start offset animates back
+     * to zero.
+     */
+    private void slideToSlot(View sibling, int oldOffsetPx) {
+        sibling.animate().cancel();
+        sibling.setTranslationY(oldOffsetPx);
+        sibling.animate().translationY(0f)
+                .setDuration(170)
+                .setInterpolator(new DecelerateInterpolator(1.8f))
+                .start();
     }
 
     private void finishDrag() {
@@ -1530,7 +1561,14 @@ public class SidebarService extends Service {
         if (dragScroll != null) {
             dragScroll.requestDisallowInterceptTouchEvent(false);
         }
-        if (v != null) v.setAlpha(1f);
+        if (v != null) {
+            v.setAlpha(1f);
+            v.animate().translationY(0f).translationZ(0f)
+                    .scaleX(1f).scaleY(1f)
+                    .setDuration(170)
+                    .setInterpolator(new DecelerateInterpolator(2f))
+                    .start();
+        }
         if (col == null) return;
         List<String> ids = new ArrayList<>();
         for (int i = 0; i < col.getChildCount(); i++) {
@@ -1549,7 +1587,7 @@ public class SidebarService extends Service {
             public void run() {
                 rebuildDockMenu();
             }
-        }, 80);
+        }, 190);
     }
 
     private View itemButton(final String id) {

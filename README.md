@@ -114,9 +114,10 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   Thay vì phủ một mảng gradient lên menu (dễ lộ vệt tối lệch màu nền), chính các
   nút gần mép được giảm dần độ đậm: ở đầu danh sách chỉ nút phía dưới mờ dần, ở
   giữa mờ cả hai phía, tới cuối danh sách chỉ còn nút phía trên mờ.
-- **Đổi thứ tự tiện ích**: nhấn giữ một icon trong menu rồi kéo lên hoặc xuống,
-  các nút còn lại tự dồn chỗ; thả tay là lưu ngay vào thanh bên. Kéo tới sát
-  mép trên/dưới thì danh sách tự cuộn.
+- **Đổi thứ tự tiện ích**: nhấn giữ một icon trong menu rồi kéo lên hoặc xuống.
+  Nút được nhấc lên (phóng nhẹ, đổ bóng) và bám theo ngón tay, các nút còn lại
+  trượt mượt sang chỗ mới; thả tay là nút lắng về đúng ô rồi mới lưu thứ tự.
+  Kéo tới sát mép trên/dưới thì danh sách tự cuộn.
 - **Nút thêm ghim ở đáy**: nút **Sửa thanh bên** nằm ngoài vùng cuộn, luôn đứng
   yên ở cuối menu, phía trên có một vạch ngang ngăn cách với danh sách tiện ích.
 - **Chọn vùng chụp trên khung đóng băng**: bấm *Chọn vùng* là màn hình được
