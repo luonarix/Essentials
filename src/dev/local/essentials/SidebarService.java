@@ -13,6 +13,8 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -23,12 +25,14 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.provider.Settings;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
@@ -167,6 +171,8 @@ public class SidebarService extends Service {
     private static final String TAB_TALLY = "tally";
     private static final String TAB_CLIP = "clip";
     private static final String TAB_QR = "qr";
+    private static final String TAB_CROSSHAIR = "crosshair";
+    private static final String TAB_TIMERS = "timers";
 
     /** Tab key -> the menu button that toggles it. */
     private static String tabButtonId(String key) {
@@ -177,6 +183,8 @@ public class SidebarService extends Service {
         if (TAB_TALLY.equals(key)) return "#tally";
         if (TAB_CLIP.equals(key)) return "#clip";
         if (TAB_QR.equals(key)) return "#qr";
+        if (TAB_CROSSHAIR.equals(key)) return "#crosshair";
+        if (TAB_TIMERS.equals(key)) return "#timers";
         return null;
     }
 
@@ -221,6 +229,7 @@ public class SidebarService extends Service {
         Side.ensureHud(this);
         Side.ensureToolkit(this);
         Side.ensureToolkit8(this);
+        Side.ensureToolkit9(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastConfigW = getResources().getDisplayMetrics().widthPixels;
@@ -233,6 +242,7 @@ public class SidebarService extends Service {
             applyKeepAwake(keepAwake);
             scheduleTuck();
             if (Side.hudOn(this)) addHud(false);
+            if (Crosshair.enabled(this)) addCrosshair(false);
         }
     }
 
@@ -280,6 +290,7 @@ public class SidebarService extends Service {
         closeColorPicker(false);
         stopRuler(false);
         stopBlackScreen(false);
+        detachCrosshair();
         detachHud();
         hideNow();
         if (handle != null) {
@@ -302,6 +313,8 @@ public class SidebarService extends Service {
         applyKeepAwake(keepAwake);
         scheduleTuck();
         if (Side.hudOn(this)) addHud(false);
+        if (Crosshair.enabled(this)) addCrosshair(false);
+        restartTimerTick();
     }
 
     @Override
@@ -310,6 +323,8 @@ public class SidebarService extends Service {
         closeColorPicker(false);
         stopRuler(false);
         stopBlackScreen(false);
+        detachCrosshair();
+        releaseTone();
         detachHud();
         hideNow();
         handler.removeCallbacksAndMessages(null);
@@ -368,6 +383,9 @@ public class SidebarService extends Service {
             }
             handle = null;
         }
+        // wipe() above also cleared the timer heartbeat; countdowns must keep
+        // running while a capture, ruler or black-screen overlay is open.
+        restartTimerTick();
     }
 
     /** Puts the handle back and re-opens the dock after a full-screen capture. */
@@ -387,6 +405,7 @@ public class SidebarService extends Service {
         if (hudView != null) hudView.setVisibility(View.VISIBLE);
         applyKeepAwake(keepAwake);
         scheduleTuck();
+        restartTimerTick();
     }
 
     // ------------------------------------------------------------ notification
@@ -1018,6 +1037,8 @@ public class SidebarService extends Service {
         else if (TAB_TALLY.equals(key)) openTally();
         else if (TAB_CLIP.equals(key)) openClip();
         else if (TAB_QR.equals(key)) openQr();
+        else if (TAB_CROSSHAIR.equals(key)) openCrosshair();
+        else if (TAB_TIMERS.equals(key)) openTimers();
         else if (TAB_NOTEDETAIL.equals(key)) openNotes();
     }
 
@@ -1412,6 +1433,21 @@ public class SidebarService extends Service {
             case "#qr":
                 iconRes = R.drawable.ic_qr;
                 break;
+            case "#crosshair":
+                iconRes = R.drawable.ic_crosshair;
+                break;
+            case "#timers":
+                iconRes = R.drawable.ic_multitimer;
+                break;
+            case "#brightness":
+                iconRes = R.drawable.ic_brightness;
+                break;
+            case "#rotate":
+                iconRes = R.drawable.ic_rotate;
+                break;
+            case "#dnd":
+                iconRes = R.drawable.ic_dnd;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -1472,6 +1508,26 @@ public class SidebarService extends Service {
         }
         if ("#qr".equals(id)) {
             toggleTab(TAB_QR);
+            return;
+        }
+        if ("#crosshair".equals(id)) {
+            toggleTab(TAB_CROSSHAIR);
+            return;
+        }
+        if ("#timers".equals(id)) {
+            toggleTab(TAB_TIMERS);
+            return;
+        }
+        if ("#brightness".equals(id)) {
+            toggleBrightnessLock();
+            return;
+        }
+        if ("#rotate".equals(id)) {
+            toggleRotationLock();
+            return;
+        }
+        if ("#dnd".equals(id)) {
+            toggleDnd();
             return;
         }
         if ("#ruler".equals(id)) {
@@ -2791,8 +2847,8 @@ public class SidebarService extends Service {
         hudHiding = false;
         applyKeepAwake(keepAwake);
         Stats.cpu(); // prime the /proc/stat delta
-        hudView.setText(hudCompact ? "--% • -- • --"
-                : "CPU --%  FPS --  RAM --");
+        hudView.setText(hudCompact ? "--% • -- • -- • --°C"
+                : "CPU --%  FPS --  RAM --  --°C");
         v.setAlpha(0f);
         v.setScaleX(0.88f);
         v.setScaleY(0.88f);
@@ -2869,12 +2925,19 @@ public class SidebarService extends Service {
         int cpu = Stats.cpu();
         int fps = Stats.fps(this);
         String ram = Stats.ram(this);
+        int temp = Stats.batteryTempC(this);
         String c = cpu < 0 ? "--" : String.valueOf(cpu);
+        String t = temp < 0 ? "--" : String.valueOf(temp);
         if (hudCompact) {
-            hudView.setText(c + "% \u2022 " + fps + " \u2022 " + ram);
+            hudView.setText(c + "% \u2022 " + fps + " \u2022 " + ram
+                    + " \u2022 " + t + "\u00b0C");
         } else {
-            hudView.setText("CPU " + c + "%  FPS " + fps + "  RAM " + ram);
+            hudView.setText("CPU " + c + "%  FPS " + fps + "  RAM " + ram
+                    + "  " + t + "\u00b0C");
         }
+        if (temp >= 42) hudView.setTextColor(0xFFFF5A5A);
+        else if (temp >= 40) hudView.setTextColor(0xFFFFB05A);
+        else hudView.setTextColor(Ui.TEXT);
         clampHudPosition();
     }
 
@@ -3719,6 +3782,725 @@ public class SidebarService extends Service {
         p.bottomMargin = dp(2);
         t.setLayoutParams(p);
         return t;
+    }
+
+
+    // ------------------------------------------------------------ crosshair
+
+    private CrosshairView crosshairView;
+    private WindowManager.LayoutParams crosshairParams;
+
+    private void openCrosshair() {
+        if (tabViews.containsKey(TAB_CROSSHAIR)) return;
+        buildingTab = TAB_CROSSHAIR;
+        LinearLayout card = buildCrosshairPanel();
+        buildingTab = null;
+        addTab(TAB_CROSSHAIR, card);
+    }
+
+    private LinearLayout buildCrosshairPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.addView(header("Tâm ngắm ảo", false, null));
+
+        final TextView status = Ui.text(this, "", 11, Ui.MUTED, false);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.topMargin = dp(2);
+        sp.bottomMargin = dp(8);
+        card.addView(status, sp);
+
+        final TextView toggle = pill("", true);
+        toggle.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (crosshairView == null) addCrosshair(true);
+                else removeCrosshair(true);
+                paintCrosshairStatus(status, toggle);
+            }
+        });
+        card.addView(toggle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        paintCrosshairStatus(status, toggle);
+
+        card.addView(label("KIỂU TÂM"));
+
+        final String[] names = {"Chấm", "Chữ thập", "Tròn"};
+        final TextView[] stylePills = new TextView[names.length];
+        LinearLayout styles = Ui.row(this);
+        for (int i = 0; i < names.length; i++) {
+            final int style = i;
+            final TextView p = pill(names[i], false);
+            p.setPadding(dp(6), dp(9), dp(6), dp(9));
+            p.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    Crosshair.setStyle(SidebarService.this, style);
+                    for (int k = 0; k < stylePills.length; k++) {
+                        setPillState(stylePills[k], k == style);
+                    }
+                    updateCrosshair();
+                }
+            });
+            stylePills[i] = p;
+            LinearLayout.LayoutParams pp = Ui.lp(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) pp.leftMargin = dp(6);
+            styles.addView(p, pp);
+        }
+        card.addView(styles);
+        for (int i = 0; i < stylePills.length; i++) {
+            setPillState(stylePills[i], Crosshair.style(this) == i);
+        }
+
+        card.addView(label("MÀU"));
+
+        final GradientDrawable[] swatchBg = new GradientDrawable[Crosshair.COLORS.length];
+        LinearLayout colorRow1 = Ui.row(this);
+        LinearLayout colorRow2 = Ui.row(this);
+        for (int i = 0; i < Crosshair.COLORS.length; i++) {
+            final int color = Crosshair.COLORS[i];
+            View swatch = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(color);
+            g.setStroke(Math.max(1, dp(1)), Ui.FRAME);
+            swatch.setBackground(g);
+            swatchBg[i] = g;
+            swatch.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    Crosshair.setColor(SidebarService.this, color);
+                    updateCrosshair();
+                    for (int k = 0; k < swatchBg.length; k++) {
+                        boolean on = Crosshair.COLORS[k] == color;
+                        swatchBg[k].setStroke(Math.max(1, dp(on ? 2 : 1)),
+                                on ? 0xFFFFFFFF : Ui.FRAME);
+                    }
+                }
+            });
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(dp(26), dp(26));
+            if (i % 4 > 0) cp.leftMargin = dp(7);
+            (i < 4 ? colorRow1 : colorRow2).addView(swatch, cp);
+        }
+        card.addView(colorRow1);
+        LinearLayout.LayoutParams cr2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cr2.topMargin = dp(7);
+        card.addView(colorRow2, cr2);
+        for (int i = 0; i < swatchBg.length; i++) {
+            boolean on = Crosshair.COLORS[i] == Crosshair.color(this);
+            swatchBg[i].setStroke(Math.max(1, dp(on ? 2 : 1)),
+                    on ? 0xFFFFFFFF : Ui.FRAME);
+        }
+
+        card.addView(label("KÍCH THƯỚC"));
+        final TextView sizeValue = Ui.text(this, Crosshair.sizeDp(this) + "dp",
+                11, Ui.ACCENT, true);
+        sizeValue.setGravity(Gravity.END);
+        card.addView(sizeValue);
+        SeekBar sizeBar = new SeekBar(this);
+        sizeBar.setMax(42);
+        sizeBar.setProgress(Crosshair.sizeDp(this) - 6);
+        tintSeek(sizeBar);
+        sizeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                int size = progress + 6;
+                Crosshair.setSizeDp(SidebarService.this, size);
+                sizeValue.setText(size + "dp");
+                updateCrosshair();
+            }
+
+            public void onStartTrackingTouch(SeekBar sb) {
+            }
+
+            public void onStopTrackingTouch(SeekBar sb) {
+            }
+        });
+        card.addView(sizeBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+
+        card.addView(label("ĐỘ MỜ"));
+        final TextView alphaValue = Ui.text(this, Crosshair.alphaPercent(this) + "%",
+                11, Ui.ACCENT, true);
+        alphaValue.setGravity(Gravity.END);
+        card.addView(alphaValue);
+        SeekBar alphaBar = new SeekBar(this);
+        alphaBar.setMax(80);
+        alphaBar.setProgress(Crosshair.alphaPercent(this) - 20);
+        tintSeek(alphaBar);
+        alphaBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (!fromUser) return;
+                int percent = progress + 20;
+                Crosshair.setAlphaPercent(SidebarService.this, percent);
+                alphaValue.setText(percent + "%");
+                updateCrosshair();
+            }
+
+            public void onStartTrackingTouch(SeekBar sb) {
+            }
+
+            public void onStopTrackingTouch(SeekBar sb) {
+            }
+        });
+        card.addView(alphaBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+
+        card.addView(label("TINH CHỈNH VỊ TRÍ"));
+        final TextView[] offsets = new TextView[2];
+        offsets[0] = offsetRow(card, "Lệch X", true);
+        offsets[1] = offsetRow(card, "Lệch Y", false);
+
+        TextView center = pill("Đưa về chính giữa", false);
+        center.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Crosshair.setOffset(SidebarService.this, 0, 0);
+                offsets[0].setText("0dp");
+                offsets[1].setText("0dp");
+                updateCrosshair();
+            }
+        });
+        LinearLayout.LayoutParams ctr = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ctr.topMargin = dp(10);
+        card.addView(center, ctr);
+
+        TextView note = Ui.text(this,
+                "Tâm ngắm nằm trên mọi ứng dụng và không chặn thao tác chạm.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+        return card;
+    }
+
+    private void paintCrosshairStatus(TextView status, TextView toggle) {
+        boolean on = crosshairView != null;
+        status.setText(on
+                ? "Đang hiển thị · thay đổi bên dưới được áp dụng ngay"
+                : "Đang tắt · bật để xem trước và chỉnh trực tiếp");
+        toggle.setText(on ? "Đang bật · chạm để tắt" : "Đang tắt · chạm để bật");
+        setPillState(toggle, on);
+    }
+
+    private void setPillState(TextView t, boolean active) {
+        t.setBackground(Ui.bg(active ? Ui.ACCENT : ITEM_BG_SOFT, this, 14));
+        t.setTextColor(active ? 0xFF0B1020 : Ui.TEXT);
+    }
+
+    private void tintSeek(SeekBar bar) {
+        try {
+            bar.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            bar.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private TextView offsetRow(LinearLayout card, String name, final boolean xAxis) {
+        LinearLayout row = Ui.row(this);
+        TextView label = Ui.text(this, name, 12, Ui.TEXT, false);
+        row.addView(label, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView value = Ui.text(this,
+                (xAxis ? Crosshair.offsetX(this) : Crosshair.offsetY(this)) + "dp",
+                11, Ui.ACCENT, true);
+        row.addView(value);
+
+        TextView minus = pill("\u2212", false);
+        minus.setPadding(dp(13), dp(6), dp(13), dp(6));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stepOffset(xAxis, -2, value);
+            }
+        });
+        LinearLayout.LayoutParams ml = Ui.lp(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ml.leftMargin = dp(10);
+        row.addView(minus, ml);
+
+        TextView plus = pill("+", false);
+        plus.setPadding(dp(13), dp(6), dp(13), dp(6));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stepOffset(xAxis, 2, value);
+            }
+        });
+        LinearLayout.LayoutParams pl = Ui.lp(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pl.leftMargin = dp(6);
+        row.addView(plus, pl);
+
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(6);
+        card.addView(row, rp);
+        return value;
+    }
+
+    private void stepOffset(boolean xAxis, int delta, TextView value) {
+        int x = Crosshair.offsetX(this);
+        int y = Crosshair.offsetY(this);
+        if (xAxis) x += delta;
+        else y += delta;
+        x = clamp(x, -400, 400);
+        y = clamp(y, -400, 400);
+        Crosshair.setOffset(this, x, y);
+        value.setText((xAxis ? x : y) + "dp");
+        updateCrosshair();
+    }
+
+    private void addCrosshair(boolean announce) {
+        if (crosshairView != null) {
+            updateCrosshair();
+            return;
+        }
+        CrosshairView v = new CrosshairView(this);
+        v.setStyle(Crosshair.style(this));
+        v.setColor(Crosshair.color(this));
+        v.setSizeDp(Crosshair.sizeDp(this));
+        v.setAlpha(Math.max(0.05f, Math.min(1f, Crosshair.alphaPercent(this) / 100f)));
+        int size = v.windowSizePx();
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                size, size, TYPE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        crosshairView = v;
+        crosshairParams = lp;
+        positionCrosshair();
+        try {
+            wm.addView(v, lp);
+        } catch (Exception e) {
+            crosshairView = null;
+            crosshairParams = null;
+            Crosshair.setEnabled(this, false);
+            toast("Không bật được tâm ngắm");
+            return;
+        }
+        Crosshair.setEnabled(this, true);
+        if (announce) toast("Đã bật tâm ngắm · mở tab để tinh chỉnh");
+    }
+
+    private void updateCrosshair() {
+        if (crosshairView == null || crosshairParams == null) return;
+        crosshairView.setStyle(Crosshair.style(this));
+        crosshairView.setColor(Crosshair.color(this));
+        crosshairView.setSizeDp(Crosshair.sizeDp(this));
+        crosshairView.setAlpha(Math.max(0.05f, Math.min(1f,
+                Crosshair.alphaPercent(this) / 100f)));
+        int size = crosshairView.windowSizePx();
+        crosshairParams.width = size;
+        crosshairParams.height = size;
+        positionCrosshair();
+        try {
+            wm.updateViewLayout(crosshairView, crosshairParams);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void positionCrosshair() {
+        if (crosshairView == null || crosshairParams == null) return;
+        int size = crosshairParams.width;
+        int x = (screenW() - size) / 2 + dp(Crosshair.offsetX(this));
+        int y = (screenH() - size) / 2 + dp(Crosshair.offsetY(this));
+        crosshairParams.x = clamp(x, -size / 2,
+                Math.max(-size / 2, screenW() - size / 2));
+        crosshairParams.y = clamp(y, -size / 2,
+                Math.max(-size / 2, screenH() - size / 2));
+    }
+
+    private void removeCrosshair(boolean announce) {
+        detachCrosshair();
+        Crosshair.setEnabled(this, false);
+        if (announce) toast("Đã tắt tâm ngắm");
+    }
+
+    private void detachCrosshair() {
+        if (crosshairView != null) {
+            try {
+                wm.removeView(crosshairView);
+            } catch (Exception ignored) {
+            }
+            crosshairView = null;
+        }
+        crosshairParams = null;
+    }
+
+    // ------------------------------------------------------------ multi timer
+
+    private static final int TIMER_SLOTS = 4;
+    private final long[] timerRemain = new long[TIMER_SLOTS];
+    private final long[] timerEnd = new long[TIMER_SLOTS];
+    private final long[] timerTotal = new long[TIMER_SLOTS];
+    private final boolean[] timerRunning = new boolean[TIMER_SLOTS];
+    private final TextView[] timerLabels = new TextView[TIMER_SLOTS];
+    private final TextView[] timerButtons = new TextView[TIMER_SLOTS];
+    private boolean timersLoaded;
+    private ToneGenerator tone;
+
+    private void openTimers() {
+        if (tabViews.containsKey(TAB_TIMERS)) return;
+        loadTimers();
+        buildingTab = TAB_TIMERS;
+        LinearLayout card = buildTimersPanel();
+        buildingTab = null;
+        addTab(TAB_TIMERS, card);
+    }
+
+    private void loadTimers() {
+        if (timersLoaded) return;
+        for (int i = 0; i < TIMER_SLOTS; i++) {
+            timerTotal[i] = Side.timerMinutes(this, i) * 60000L;
+            timerRemain[i] = timerTotal[i];
+            timerRunning[i] = false;
+            timerEnd[i] = 0L;
+        }
+        timersLoaded = true;
+    }
+
+    private LinearLayout buildTimersPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Đa hẹn giờ", false, null));
+
+        TextView hint = Ui.text(this,
+                "4 đồng hồ chạy song song · báo tiếng khi hết giờ",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(4);
+        card.addView(hint, hp);
+
+        for (int i = 0; i < TIMER_SLOTS; i++) {
+            card.addView(timerRow(i), timerRowParams(i));
+        }
+
+        TextView resetAll = pill("Đặt lại tất cả", false);
+        resetAll.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                for (int i = 0; i < TIMER_SLOTS; i++) {
+                    timerRunning[i] = false;
+                    timerTotal[i] = Side.timerMinutes(SidebarService.this, i) * 60000L;
+                    timerRemain[i] = timerTotal[i];
+                }
+                handler.removeCallbacks(timerTick);
+                updateTimerLabels();
+                toast("Đã đặt lại 4 đồng hồ");
+            }
+        });
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(12);
+        card.addView(resetAll, rp);
+        return card;
+    }
+
+    private LinearLayout.LayoutParams timerRowParams(int index) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (index > 0) p.topMargin = dp(8);
+        return p;
+    }
+
+    private View timerRow(final int index) {
+        LinearLayout box = Ui.col(this);
+        box.setBackground(Ui.framed(ITEM_BG_SOFT, this, 14));
+        box.setPadding(dp(10), dp(8), dp(10), dp(9));
+
+        LinearLayout top = Ui.row(this);
+        TextView name = Ui.text(this, "Hẹn " + (index + 1), 12, Ui.MUTED, true);
+        top.addView(name, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView time = Ui.text(this, formatTimer(timerRemain[index]),
+                20, Ui.ACCENT, true);
+        time.setTypeface(android.graphics.Typeface.MONOSPACE);
+        top.addView(time);
+        box.addView(top);
+
+        LinearLayout actions = Ui.row(this);
+        TextView minus = pill("\u22121p", false);
+        minus.setPadding(dp(9), dp(6), dp(9), dp(6));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                adjustTimer(index, -1);
+            }
+        });
+        TextView plus = pill("+1p", false);
+        plus.setPadding(dp(9), dp(6), dp(9), dp(6));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                adjustTimer(index, 1);
+            }
+        });
+        final TextView start = pill(timerRunning[index] ? "Tạm dừng" : "Bắt đầu", true);
+        start.setPadding(dp(8), dp(6), dp(8), dp(6));
+        start.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                toggleTimer(index);
+            }
+        });
+        TextView reset = pill("\u21ba", false);
+        reset.setPadding(dp(11), dp(6), dp(11), dp(6));
+        reset.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                timerRunning[index] = false;
+                timerTotal[index] = Side.timerMinutes(SidebarService.this, index) * 60000L;
+                timerRemain[index] = timerTotal[index];
+                updateTimerLabels();
+                stopTimerTickIfIdle();
+            }
+        });
+
+        actions.addView(minus);
+        LinearLayout.LayoutParams lp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.leftMargin = dp(5);
+        actions.addView(plus, lp);
+        LinearLayout.LayoutParams sp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.6f);
+        sp.leftMargin = dp(5);
+        actions.addView(start, sp);
+        LinearLayout.LayoutParams rp = Ui.lp(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.leftMargin = dp(5);
+        actions.addView(reset, rp);
+
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.topMargin = dp(7);
+        box.addView(actions, ap);
+
+        timerLabels[index] = time;
+        timerButtons[index] = start;
+        return box;
+    }
+
+    private String formatTimer(long ms) {
+        long total = Math.max(0, (ms + 999) / 1000);
+        long h = total / 3600;
+        long m = (total % 3600) / 60;
+        long sec = total % 60;
+        if (h > 0) return String.format(Locale.US, "%d:%02d:%02d", h, m, sec);
+        return String.format(Locale.US, "%02d:%02d", m, sec);
+    }
+
+    private void toggleTimer(int index) {
+        loadTimers();
+        long now = SystemClock.elapsedRealtime();
+        if (timerRunning[index]) {
+            timerRemain[index] = Math.max(0, timerEnd[index] - now);
+            timerRunning[index] = false;
+            stopTimerTickIfIdle();
+        } else {
+            if (timerRemain[index] <= 0) timerRemain[index] = timerTotal[index];
+            if (timerRemain[index] <= 0) timerRemain[index] = 60000L;
+            timerEnd[index] = now + timerRemain[index];
+            timerRunning[index] = true;
+            handler.removeCallbacks(timerTick);
+            handler.post(timerTick);
+        }
+        updateTimerLabels();
+        Ui.pop(timerButtons[index]);
+    }
+
+    private void adjustTimer(int index, int deltaMinutes) {
+        loadTimers();
+        long delta = deltaMinutes * 60000L;
+        if (timerRunning[index]) {
+            long now = SystemClock.elapsedRealtime();
+            timerEnd[index] = Math.max(now + 1000L, timerEnd[index] + delta);
+            timerRemain[index] = Math.max(0, timerEnd[index] - now);
+        } else {
+            timerRemain[index] = Math.max(1000L, timerRemain[index] + delta);
+        }
+        timerTotal[index] = Math.max(60000L, timerRemain[index]);
+        int minutes = (int) Math.max(1, Math.round(timerTotal[index] / 60000d));
+        Side.setTimerMinutes(this, index, minutes);
+        updateTimerLabels();
+    }
+
+    private void updateTimerLabels() {
+        for (int i = 0; i < TIMER_SLOTS; i++) {
+            if (timerLabels[i] != null) {
+                timerLabels[i].setText(formatTimer(timerRemain[i]));
+            }
+            if (timerButtons[i] != null) {
+                timerButtons[i].setText(timerRunning[i] ? "Tạm dừng" : "Bắt đầu");
+                setPillState(timerButtons[i], !timerRunning[i]);
+            }
+        }
+    }
+
+    private final Runnable timerTick = new Runnable() {
+        public void run() {
+            long now = SystemClock.elapsedRealtime();
+            boolean any = false;
+            for (int i = 0; i < TIMER_SLOTS; i++) {
+                if (!timerRunning[i]) continue;
+                long left = timerEnd[i] - now;
+                if (left <= 0) {
+                    left = 0;
+                    timerRunning[i] = false;
+                    beepTimer();
+                    toast("Hết giờ · Hẹn " + (i + 1));
+                }
+                timerRemain[i] = left;
+                any = true;
+            }
+            updateTimerLabels();
+            if (any) handler.postDelayed(timerTick, 250);
+        }
+    };
+
+    private void stopTimerTickIfIdle() {
+        for (int i = 0; i < TIMER_SLOTS; i++) {
+            if (timerRunning[i]) return;
+        }
+        handler.removeCallbacks(timerTick);
+    }
+
+    private void restartTimerTick() {
+        for (int i = 0; i < TIMER_SLOTS; i++) {
+            if (timerRunning[i]) {
+                handler.removeCallbacks(timerTick);
+                handler.post(timerTick);
+                return;
+            }
+        }
+    }
+
+    private void beepTimer() {
+        try {
+            if (tone == null) {
+                tone = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80);
+            }
+            tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 260);
+            handler.postDelayed(new Runnable() {
+                public void run() {
+                    try {
+                        if (tone != null) {
+                            tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 260);
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }, 430);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void releaseTone() {
+        if (tone != null) {
+            try {
+                tone.release();
+            } catch (Exception ignored) {
+            }
+            tone = null;
+        }
+    }
+
+    // ------------------------------------------------------------ system locks
+
+    private SharedPreferences lockPrefs() {
+        return getSharedPreferences("locks", MODE_PRIVATE);
+    }
+
+    private boolean requireWriteSettings() {
+        if (Settings.System.canWrite(this)) return true;
+        toast("Cấp quyền Sửa cài đặt hệ thống cho Essentials");
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    android.net.Uri.parse("package:" + getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            toast("Mở Cài đặt → Ứng dụng → Sửa cài đặt hệ thống");
+        }
+        return false;
+    }
+
+    private void toggleBrightnessLock() {
+        if (!requireWriteSettings()) return;
+        SharedPreferences sp = lockPrefs();
+        try {
+            android.content.ContentResolver cr = getContentResolver();
+            boolean locked = sp.getBoolean("bright", false);
+            if (locked) {
+                Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        sp.getInt("bright_mode", Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC));
+                Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS,
+                        sp.getInt("bright_value", 128));
+                sp.edit().putBoolean("bright", false).apply();
+                toast("Đã mở khoá độ sáng");
+            } else {
+                int mode = Settings.System.getInt(cr,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC);
+                int value = Settings.System.getInt(cr,
+                        Settings.System.SCREEN_BRIGHTNESS, 128);
+                sp.edit().putBoolean("bright", true)
+                        .putInt("bright_mode", mode)
+                        .putInt("bright_value", value).apply();
+                Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+                Settings.System.putInt(cr, Settings.System.SCREEN_BRIGHTNESS, value);
+                toast("Đã khoá độ sáng " + Math.round(value * 100f / 255f) + "%");
+            }
+        } catch (Exception e) {
+            toast("Hệ thống chặn đổi độ sáng");
+        }
+    }
+
+    private void toggleRotationLock() {
+        if (!requireWriteSettings()) return;
+        SharedPreferences sp = lockPrefs();
+        try {
+            android.content.ContentResolver cr = getContentResolver();
+            boolean locked = sp.getBoolean("rotate", false);
+            if (locked) {
+                Settings.System.putInt(cr, Settings.System.ACCELEROMETER_ROTATION, 1);
+                sp.edit().putBoolean("rotate", false).apply();
+                toast("Đã mở khoá xoay màn hình");
+            } else {
+                int rotation = wm.getDefaultDisplay().getRotation();
+                Settings.System.putInt(cr, Settings.System.USER_ROTATION, rotation);
+                Settings.System.putInt(cr, Settings.System.ACCELEROMETER_ROTATION, 0);
+                sp.edit().putBoolean("rotate", true).apply();
+                boolean landscape = rotation == android.view.Surface.ROTATION_90
+                        || rotation == android.view.Surface.ROTATION_270;
+                toast(landscape ? "Đã khoá hướng ngang" : "Đã khoá hướng dọc");
+            }
+        } catch (Exception e) {
+            toast("Hệ thống chặn đổi hướng xoay");
+        }
+    }
+
+    private void toggleDnd() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        if (!nm.isNotificationPolicyAccessGranted()) {
+            toast("Cấp quyền Không làm phiền cho Essentials");
+            try {
+                Intent i = new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+        try {
+            int filter = nm.getCurrentInterruptionFilter();
+            if (filter == NotificationManager.INTERRUPTION_FILTER_ALL) {
+                nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY);
+                toast("Không làm phiền: chỉ ưu tiên");
+            } else {
+                nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL);
+                toast("Đã tắt Không làm phiền");
+            }
+        } catch (Exception e) {
+            toast("Hệ thống chặn đổi Không làm phiền");
+        }
     }
 
     // ------------------------------------------------------------ ruler overlay

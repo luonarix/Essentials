@@ -2,6 +2,9 @@ package dev.local.essentials;
 
 import android.app.ActivityManager;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.view.WindowManager;
 
 import java.io.BufferedReader;
@@ -138,6 +141,20 @@ final class Stats {
         } catch (Exception e) {
             return 60;
         }
+    }
+
+    /** Battery temperature in whole degrees Celsius, or -1 when unavailable. */
+    static int batteryTempC(Context c) {
+        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        Intent battery = null;
+        try {
+            battery = c.registerReceiver(null, filter);
+        } catch (Exception ignored) {
+        }
+        if (battery == null) return -1;
+        int tenths = battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+        if (tenths <= 0) return -1;
+        return Math.round(tenths / 10f);
     }
 
     /** Used RAM with an adaptive unit: "3.2 GB" or "640 MB". */

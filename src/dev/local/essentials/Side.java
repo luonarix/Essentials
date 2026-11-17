@@ -20,7 +20,8 @@ final class Side {
             "#torch", "#quicknote", "#notes", "#timer", "#convert", "#shot", "#volume",
             "#hud", "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
             "#color", "#lock", "#back", "#home", "#recents",
-            "#ruler", "#tally", "#clip", "#black", "#qr", "#menu"
+            "#ruler", "#tally", "#clip", "#black", "#qr",
+            "#crosshair", "#timers", "#brightness", "#rotate", "#dnd", "#menu"
     };
 
     static final String[] LABELS = {
@@ -30,7 +31,9 @@ final class Side {
             "Chuông / Rung / Im", "Giữ sáng màn hình", "Soi màu & lấy mã Hex",
             "Khoá cảm ứng", "Quay lại", "Về màn hình chính", "Đa nhiệm",
             "Thước đo & lưới", "Bộ đếm & xúc xắc", "Clipboard & đoạn mẫu",
-            "Màn hình đen", "Mã QR offline", "Menu đầy đủ"
+            "Màn hình đen", "Mã QR offline", "Tâm ngắm ảo", "Đa hẹn giờ",
+            "Khoá độ sáng", "Khoá xoay màn hình", "Không làm phiền",
+            "Menu đầy đủ"
     };
 
     /** Tools added in v7.0, appended once to lists saved by older versions. */
@@ -44,6 +47,11 @@ final class Side {
             "#ruler", "#tally", "#clip", "#black", "#qr"
     };
 
+    /** Tools added in v9.0, appended once to lists saved by older versions. */
+    static final String[] V9_ITEMS = {
+            "#crosshair", "#timers", "#brightness", "#rotate", "#dnd"
+    };
+
     private Side() {}
 
     static List<String> items(Context c) {
@@ -54,7 +62,8 @@ final class Side {
                     "#timer", "#convert", "#shot", "#volume", "#hud",
                     "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
                     "#color", "#lock", "#back", "#home", "#recents",
-                    "#ruler", "#tally", "#clip", "#black", "#qr"));
+                    "#ruler", "#tally", "#clip", "#black", "#qr",
+                    "#crosshair", "#timers", "#brightness", "#rotate", "#dnd"));
         }
         List<String> out = new ArrayList<>();
         for (String s : raw.split(",")) {
@@ -159,6 +168,39 @@ final class Side {
         }
         setItems(c, ids);
         sp.edit().putBoolean("tools_v8", true).apply();
+    }
+
+    /** Adds the v9.0 tools once, keeping "#menu" at the end of the list. */
+    static void ensureToolkit9(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        if (sp.getBoolean("tools_v9", false)) return;
+        List<String> ids = items(c);
+        int menu = ids.indexOf("#menu");
+        for (String id : V9_ITEMS) {
+            if (ids.contains(id)) continue;
+            if (menu >= 0) {
+                ids.add(menu, id);
+                menu++;
+            } else {
+                ids.add(id);
+            }
+        }
+        setItems(c, ids);
+        sp.edit().putBoolean("tools_v9", true).apply();
+    }
+
+    /** Default countdown lengths for the four multi-timer slots, in minutes. */
+    private static final int[] TIMER_DEFAULTS = {5, 10, 15, 30};
+
+    static int timerMinutes(Context c, int index) {
+        return c.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                .getInt("timer_min_" + index,
+                        TIMER_DEFAULTS[index % TIMER_DEFAULTS.length]);
+    }
+
+    static void setTimerMinutes(Context c, int index, int minutes) {
+        c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putInt("timer_min_" + index, Math.max(1, minutes)).apply();
     }
 
     static int tally(Context c) {

@@ -41,7 +41,8 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | Tiện ích | Đèn pin, ghi chú nhanh, danh sách ghi chú, bấm giờ, quy đổi đơn vị |
 | Đo & ngẫu nhiên | Thước đo lưới dp/px, bộ đếm lượt, xúc xắc / đồng xu / số ngẫu nhiên |
 | Văn bản | Lịch sử clipboard, đoạn văn mẫu ghim sẵn, mã QR offline từ văn bản |
-| Màn hình | HUD CPU / FPS / RAM, giữ sáng, khoá cảm ứng, soi màu Hex, màn hình đen |
+| Màn hình | HUD CPU / FPS / RAM / nhiệt độ, giữ sáng, khoá cảm ứng, soi màu Hex, màn hình đen |
+| Chiến đấu | Tâm ngắm ảo, 4 hẹn giờ song song, khoá độ sáng, khoá xoay, Không làm phiền |
 | Giao diện | Ripple lan từ đúng toạ độ chạm, phản hồi nhún, cascade nội dung, animation màn hình |
 
 ### Công cụ mới trong v8.0
@@ -71,6 +72,30 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   toàn offline.
 - **Xoay màn hình**: thanh bên và tay nắm được tạo lại theo kích thước mới; vạch
   ẩn không còn dày hơn khi sang ngang.
+
+### Công cụ mới trong v9.0
+
+- **Tâm ngắm ảo** (`#crosshair`): overlay nhỏ nằm giữa mọi ứng dụng, không chặn
+  thao tác chạm. Ba kiểu **chấm / chữ thập / vòng tròn**, 7 màu, chỉnh kích thước
+  6–48dp, độ mờ 20–100% và lệch X/Y theo từng 2dp. Mọi thay đổi áp dụng ngay và
+  được lưu lại cho lần mở sau.
+- **Đa hẹn giờ** (`#timers`): 4 đồng hồ đếm ngược chạy song song trong một tab,
+  mỗi đồng hồ chỉnh được thời lượng theo phút, bắt đầu / tạm dừng / đặt lại độc
+  lập. Hết giờ có hai tiếng bíp nhẹ; bộ đếm vẫn chạy khi đóng tab hoặc mở thước
+  đo, chụp màn hình, màn hình đen.
+- **Khoá độ sáng** (`#brightness`): một chạm chuyển độ sáng hệ thống sang thủ
+  công đúng mức đang dùng để cảm biến không tự làm tối màn hình; chạm lần nữa
+  khôi phục chế độ và mức sáng trước đó.
+- **Khoá xoay màn hình** (`#rotate`): một chạm khoá cứng hướng đang cầm (dọc
+  hoặc ngang), chạm lần nữa bật lại tự động xoay.
+- **Không làm phiền** (`#dnd`): bật chế độ ưu tiên của hệ thống để chặn thông
+  báo nổi; chạm lần nữa trả về bình thường.
+- **HUD nhiệt độ**: HUD hiện thêm nhiệt độ pin. Từ **40°C** chữ chuyển màu cam,
+  từ **42°C** chuyển đỏ để biết lúc máy bắt đầu bóp hiệu năng.
+
+> Khoá độ sáng và khoá xoay cần quyền **Sửa cài đặt hệ thống**; Không làm phiền
+> cần quyền **Truy cập chế độ Không làm phiền**. Lần đầu bấm, app sẽ mở đúng
+> trang cài đặt để bật quyền.
 
 ### Quyền riêng tư
 
@@ -117,6 +142,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | `Snippets` | Lưu lịch sử clipboard và đoạn văn mẫu ghim sẵn |
 | `RulerView` | Vẽ lưới đo dp/px và tâm đo trên overlay |
 | `QrCode` | Bộ mã hoá QR thuần Java (byte mode, mức M, version 1–40) |
+| `Crosshair`, `CrosshairView` | Cấu hình và vẽ tâm ngắm overlay |
 | `AboutActivity` | Màn hình giấy phép và bản quyền |
 | `NotesActivity`, `StopwatchActivity`, `ConverterActivity` | Công cụ toàn màn hình |
 | `Ui`, `TouchFade` | Màu/khung, layout helper, ripple và animation |
