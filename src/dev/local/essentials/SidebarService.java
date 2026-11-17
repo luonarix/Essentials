@@ -1271,8 +1271,25 @@ public class SidebarService extends Service {
 
     // ------------------------------------------------------------ menu panel
 
-    /** Maximum buttons per column; the menu grows sideways past that. */
-    private static final int MENU_ROWS = 10;
+    /**
+     * Tools visible before the menu starts scrolling. Older builds wrapped the
+     * menu into extra columns, which made it too wide for the tab area (and in
+     * landscape it ran off-screen), so the menu is a single scrolling column
+     * now: six buttons tall, then swipe.
+     */
+    private static final int MENU_ROWS = 6;
+    private static final int MENU_CELL_DP = 50;
+    private static final int MENU_GAP_DP = 6;
+
+    // Long-press drag-to-reorder state for the menu column.
+    private View dragView;
+    private int dragIndex = -1;
+    private int dragBaseIndex = -1;
+    private float dragBaseRawY;
+    private float dragTouchRawY;
+    private int dragScrollStart;
+    private LinearLayout dragColumn;
+    private MaxScroll dragScroll;
 
     private LinearLayout buildMenu() {
         torchIcon = null;
@@ -1291,56 +1308,188 @@ public class SidebarService extends Service {
         for (String id : Side.items(this)) {
             View b = itemButton(id);
             if (b != null) {
+                b.setTag(id);
+                attachReorder(b);
                 buttons.add(b);
                 menuButtons.put(id, b);
             }
         }
 
+        LinearLayout card = glassCard();
+        card.setPadding(dp(8), dp(8), dp(8), dp(8));
+
+        LinearLayout column = Ui.col(this);
+        column.setClipChildren(false);
+        for (int i = 0; i < buttons.size(); i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                    dp(MENU_CELL_DP), dp(MENU_CELL_DP));
+            p.bottomMargin = dp(MENU_GAP_DP);
+            column.addView(buttons.get(i), p);
+        }
+
+        int pitch = dp(MENU_CELL_DP + MENU_GAP_DP);
+        int rows = Math.min(MENU_ROWS, Math.max(1, buttons.size()));
+        int wanted = rows * pitch - dp(MENU_GAP_DP);
+        // Leave room for the pinned add button and both screen edges so the
+        // menu still fits in landscape.
+        int room = Math.max(dp(MENU_CELL_DP * 2), screenH() - dp(150));
+        int maxHeight = Math.min(wanted, room);
+
+        MaxScroll tools = new MaxScroll(this);
+        tools.setMaxHeight(maxHeight);
+        tools.setFillViewport(false);
+        boolean scrollable = buttons.size() > MENU_ROWS;
+        tools.setVerticalScrollBarEnabled(scrollable);
+        tools.setScrollbarFadingEnabled(!scrollable);
+        tools.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
+        tools.setClipChildren(false);
+        tools.addView(column, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(tools, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dragColumn = column;
+        dragScroll = tools;
+
+        View divider = new View(this);
+        divider.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        dl.topMargin = dp(5);
+        dl.bottomMargin = dp(7);
+        card.addView(divider, dl);
+
+        // The add/edit button sits outside the scroll view, so it stays put
+        // while the tools scroll and never leaves the bottom of the menu.
         View edit = iconButton(R.drawable.ic_edit, "Sửa thanh bên",
                 new View.OnClickListener() {
                     public void onClick(View v) {
                         toggleTab(TAB_EDITOR);
                     }
                 }, ITEM_BG_SOFT);
-        buttons.add(edit);
-
-        LinearLayout card = glassCard();
-        card.setPadding(dp(8), dp(8), dp(8), dp(8));
-
-        LinearLayout grid = Ui.row(this);
-        grid.setGravity(Gravity.TOP);
-
-        int total = buttons.size();
-        int cols = Math.max(1, (total + MENU_ROWS - 1) / MENU_ROWS);
-        // Three or more columns must stay narrow enough to leave room for tabs.
-        int cell = cols > 2 ? dp(46) : dp(50);
-        int next = 0;
-        for (int c = 0; c < cols; c++) {
-            int remaining = total - next;
-            int remainingCols = cols - c;
-            int take = (remaining + remainingCols - 1) / remainingCols;
-
-            LinearLayout col = Ui.col(this);
-            for (int i = 0; i < take && next < total; i++) {
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cell, cell);
-                p.bottomMargin = dp(6);
-                col.addView(buttons.get(next++), p);
-            }
-            if (c == 0) {
-                grid.addView(col);
-            } else {
-                LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
-                cp.leftMargin = dp(6);
-                grid.addView(col, cp);
-            }
-        }
-        card.addView(grid);
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(
+                dp(MENU_CELL_DP), dp(MENU_CELL_DP));
+        ep.gravity = Gravity.CENTER_HORIZONTAL;
+        card.addView(edit, ep);
 
         paintCaffeine(false);
         for (String key : tabViews.keySet()) paintTabButton(key, true);
         return card;
+    }
+
+    /** Wires long-press drag so tools can be moved up or down the menu. */
+    private void attachReorder(final View v) {
+        v.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View view) {
+                return startDrag(view);
+            }
+        });
+        v.setOnTouchListener(new View.OnTouchListener() {
+            public boolean onTouch(View view, MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        dragTouchRawY = e.getRawY();
+                        view.animate().cancel();
+                        view.animate().scaleX(0.90f).scaleY(0.90f)
+                                .setDuration(80).start();
+                        break;
+                    case MotionEvent.ACTION_MOVE:
+                        dragTouchRawY = e.getRawY();
+                        if (dragView == view) moveDrag(e.getRawY());
+                        break;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        view.animate().scaleX(1f).scaleY(1f)
+                                .setDuration(140)
+                                .setInterpolator(new DecelerateInterpolator(2f))
+                                .start();
+                        if (dragView == view) finishDrag();
+                        break;
+                    default:
+                        break;
+                }
+                return false;
+            }
+        });
+    }
+
+    private boolean startDrag(View v) {
+        if (dragColumn == null || dragColumn.indexOfChild(v) < 0) return false;
+        dragView = v;
+        dragIndex = dragColumn.indexOfChild(v);
+        dragBaseIndex = dragIndex;
+        dragBaseRawY = dragTouchRawY;
+        dragScrollStart = dragScroll == null ? 0 : dragScroll.getScrollY();
+        v.setAlpha(0.82f);
+        v.animate().scaleX(0.94f).scaleY(0.94f).setDuration(90).start();
+        if (dragScroll != null) {
+            dragScroll.requestDisallowInterceptTouchEvent(true);
+        }
+        Ui.pop(v);
+        toast("Kéo lên/xuống để đổi thứ tự");
+        return true;
+    }
+
+    private void moveDrag(float rawY) {
+        if (dragView == null || dragColumn == null) return;
+        int pitch = Math.max(1, dp(MENU_CELL_DP + MENU_GAP_DP));
+        int scrolled = (dragScroll == null ? 0 : dragScroll.getScrollY()) - dragScrollStart;
+        int count = dragColumn.getChildCount();
+        int target = dragBaseIndex
+                + Math.round((rawY - dragBaseRawY + scrolled) / pitch);
+        target = clamp(target, 0, Math.max(0, count - 1));
+
+        while (dragIndex < target && dragIndex + 1 < count) {
+            View sibling = dragColumn.getChildAt(dragIndex + 1);
+            dragColumn.removeView(sibling);
+            dragColumn.addView(sibling, dragIndex);
+            dragIndex++;
+        }
+        while (dragIndex > target && dragIndex - 1 >= 0) {
+            View sibling = dragColumn.getChildAt(dragIndex - 1);
+            dragColumn.removeView(sibling);
+            dragColumn.addView(sibling, dragIndex);
+            dragIndex--;
+        }
+
+        if (dragScroll != null) {
+            int[] loc = new int[2];
+            dragScroll.getLocationOnScreen(loc);
+            int top = loc[1];
+            int bottom = top + dragScroll.getHeight();
+            if (rawY < top + dp(46)) dragScroll.scrollBy(0, -dp(6));
+            else if (rawY > bottom - dp(46)) dragScroll.scrollBy(0, dp(6));
+        }
+    }
+
+    private void finishDrag() {
+        View v = dragView;
+        LinearLayout col = dragColumn;
+        dragView = null;
+        dragIndex = -1;
+        dragBaseIndex = -1;
+        if (dragScroll != null) {
+            dragScroll.requestDisallowInterceptTouchEvent(false);
+        }
+        if (v != null) v.setAlpha(1f);
+        if (col == null) return;
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < col.getChildCount(); i++) {
+            Object tag = col.getChildAt(i).getTag();
+            if (tag instanceof String) ids.add((String) tag);
+        }
+        if (ids.isEmpty()) return;
+        // Keep items that had no visible button (e.g. an uninstalled shortcut)
+        // at the end instead of dropping them from the saved list.
+        for (String id : Side.items(this)) {
+            if (!ids.contains(id)) ids.add(id);
+        }
+        Side.setItems(this, ids);
+        toast("Đã lưu thứ tự tiện ích");
+        handler.postDelayed(new Runnable() {
+            public void run() {
+                rebuildDockMenu();
+            }
+        }, 80);
     }
 
     private View itemButton(final String id) {
@@ -2082,6 +2231,7 @@ public class SidebarService extends Service {
     // ------------------------------------------------------------ shot runtime
 
     private View pickRoot;
+    private Bitmap freezeBmp;
     private boolean shotBusy;
     private int lastConfigW = -1;
     private int lastConfigH = -1;
@@ -2099,11 +2249,14 @@ public class SidebarService extends Service {
         hideHandleForCapture();
         if (hudView != null) hudView.setVisibility(View.GONE);
         if (region) {
+            // Freeze first: the screenshot is taken a beat after the panel is
+            // removed, then the picker draws that exact frame. Whatever was on
+            // screen at the tap stays put while the user drags a rectangle.
             handler.postDelayed(new Runnable() {
                 public void run() {
-                    showShotPicker();
+                    freezeShotPicker();
                 }
-            }, 260);
+            }, 90);
         } else {
             handler.postDelayed(new Runnable() {
                 public void run() {
@@ -2135,6 +2288,36 @@ public class SidebarService extends Service {
                 restoreAfterCapture();
             }
         });
+    }
+
+    /**
+     * Crops the frozen frame using the same stretch the picker drew, so the
+     * saved region is exactly the rectangle the user saw, even when the
+     * screenshot was captured without the status bar or at a lower resolution.
+     */
+    private void saveFrozenShot(Bitmap frozen, Rect crop, int viewW, int viewH) {
+        Bitmap out = frozen;
+        if (crop != null) {
+            try {
+                int w = frozen.getWidth();
+                int h = frozen.getHeight();
+                float rx = w / (float) Math.max(1, viewW);
+                float ry = h / (float) Math.max(1, viewH);
+                int l = clamp(Math.round(crop.left * rx), 0, w - 2);
+                int t = clamp(Math.round(crop.top * ry), 0, h - 2);
+                int r = clamp(Math.round(crop.right * rx), l + 2, w);
+                int b = clamp(Math.round(crop.bottom * ry), t + 2, h);
+                out = Bitmap.createBitmap(frozen, l, t, r - l, b - t);
+            } catch (Exception ignored) {
+                out = frozen;
+            }
+        }
+        String path = Shots.saveImage(this, out);
+        if (out != frozen) out.recycle();
+        if (!frozen.isRecycled()) frozen.recycle();
+        shotBusy = false;
+        toast(path != null ? "Đã lưu: " + path : "Không lưu được ảnh");
+        restoreAfterCapture();
     }
 
     private void saveShot(Bitmap bmp, Rect crop) {
@@ -2192,13 +2375,44 @@ public class SidebarService extends Service {
         }
         String path = Shots.saveImage(this, out);
         out.recycle();
+        if (bmp != out && !bmp.isRecycled()) bmp.recycle();
         shotBusy = false;
         toast(path != null ? "Đã lưu: " + path : "Không lưu được ảnh");
         restoreAfterCapture();
     }
 
-    private void showShotPicker() {
+    /** Captures one frame so the region picker works on a still image. */
+    private void freezeShotPicker() {
+        ShotService.take(new ShotService.ShotCallback() {
+            public void onShot(Bitmap bmp) {
+                if (bmp == null) {
+                    shotBusy = false;
+                    toast("Không chụp được màn hình");
+                    restoreAfterCapture();
+                    return;
+                }
+                showShotPicker(bmp);
+            }
+
+            public void onFail(String message) {
+                shotBusy = false;
+                toast(message);
+                restoreAfterCapture();
+            }
+        });
+    }
+
+    private void showShotPicker(final Bitmap frozen) {
         final FrameLayout root = new FrameLayout(this);
+        if (frozen != null) {
+            freezeBmp = frozen;
+            ImageView still = new ImageView(this);
+            still.setScaleType(ImageView.ScaleType.FIT_XY);
+            still.setImageBitmap(frozen);
+            root.addView(still, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         final PickView pick = new PickView(this);
         root.addView(pick, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -2242,12 +2456,20 @@ public class SidebarService extends Service {
                     toast("Vùng chọn quá nhỏ");
                     return;
                 }
+                Bitmap still = freezeBmp;
+                freezeBmp = null;
+                int viewW = pick.getWidth();
+                int viewH = pick.getHeight();
                 removeShotPicker();
-                handler.postDelayed(new Runnable() {
-                    public void run() {
-                        grabShot(r);
-                    }
-                }, 350);
+                if (still != null) {
+                    saveFrozenShot(still, r, viewW, viewH);
+                } else {
+                    handler.postDelayed(new Runnable() {
+                        public void run() {
+                            grabShot(r);
+                        }
+                    }, 350);
+                }
             }
         });
         bar.addView(ok);
@@ -2286,12 +2508,17 @@ public class SidebarService extends Service {
     }
 
     private void removeShotPicker() {
-        if (pickRoot == null) return;
-        try {
-            wm.removeView(pickRoot);
-        } catch (Exception ignored) {
+        if (pickRoot != null) {
+            try {
+                wm.removeView(pickRoot);
+            } catch (Exception ignored) {
+            }
+            pickRoot = null;
         }
-        pickRoot = null;
+        if (freezeBmp != null) {
+            freezeBmp.recycle();
+            freezeBmp = null;
+        }
     }
 
     /** Dim overlay with a draggable rectangle. */

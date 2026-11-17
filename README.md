@@ -25,6 +25,11 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Xoay màn hình**: thanh bên tự đặt lại về giữa; vạch thu vào mép giữ nguyên
   độ dày ở cả chiều dọc và chiều ngang.
 - **Menu luôn hiện** khi dock mở. Mở công cụ không làm menu biến mất.
+- **Menu cuộn một cột**: hiện 6 tiện ích, nhiều hơn thì lướt dọc — không còn
+  chia thêm cột làm menu tràn ra ngoài ở chế độ ngang.
+- **Nhấn giữ để đổi thứ tự**: giữ một tiện ích rồi kéo lên/xuống, thứ tự được
+  lưu lại; nút **Sửa thanh bên** luôn ghim ở đáy menu, ngăn cách bằng một vạch
+  ngang và đứng yên khi cuộn.
 - **Nhiều tab cùng lúc**: Ghi chú, Ghi chú nhanh, Âm lượng, Chụp màn hình,
   Sửa thanh bên, Chi tiết ghi chú — xếp dọc trong cột cuộn được.
 - Nút `×` chỉ đóng tab đó; nút menu của tab đang mở được **tô viền accent**.
@@ -35,7 +40,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 | Nhóm | Công cụ |
 |---|---|
-| Chụp ảnh | Chụp toàn màn hình, chọn vùng, lưu vào thư viện ảnh — **không popup quyền** |
+| Chụp ảnh | Chụp toàn màn hình, chọn vùng trên khung hình đóng băng, lưu vào thư viện ảnh — **không popup quyền** |
 | Âm thanh | Thanh âm lượng nhạc / chuông / báo thức; xoay vòng Chuông → Rung → Im lặng |
 | Hệ thống | Bảng nguồn, kéo rèm thông báo, Cài đặt nhanh, Back / Home / Đa nhiệm |
 | Tiện ích | Đèn pin, ghi chú nhanh, danh sách ghi chú, bấm giờ, quy đổi đơn vị |
@@ -99,6 +104,20 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 > Khoá độ sáng và khoá xoay cần quyền **Sửa cài đặt hệ thống**; Không làm phiền
 > cần quyền **Truy cập chế độ Không làm phiền**. Lần đầu bấm, app sẽ mở đúng
 > trang cài đặt để bật quyền.
+
+### Bản 9.1
+
+- **Menu cuộn thay vì chia cột**: khi có hơn 6 tiện ích, menu chỉ cao đúng 6
+  nút và cuộn dọc, phần còn lại lướt tới. Cách này bỏ hẳn các cột phụ nên menu
+  không còn rộng và tràn ra ngoài ở chế độ ngang; tab công cụ có thêm chỗ.
+- **Đổi thứ tự tiện ích**: nhấn giữ một icon trong menu rồi kéo lên hoặc xuống,
+  các nút còn lại tự dồn chỗ; thả tay là lưu ngay vào thanh bên. Kéo tới sát
+  mép trên/dưới thì danh sách tự cuộn.
+- **Nút thêm ghim ở đáy**: nút **Sửa thanh bên** nằm ngoài vùng cuộn, luôn đứng
+  yên ở cuối menu, phía trên có một vạch ngang ngăn cách với danh sách tiện ích.
+- **Chọn vùng chụp trên khung đóng băng**: bấm *Chọn vùng* là màn hình được
+  chụp lại ngay lúc đó rồi mới hiện khung kéo chọn, nên ảnh không còn lệch với
+  thứ đang nhìn thấy và không bị chụp lại lần hai sau khi chọn.
 
 ### Quyền riêng tư
 
