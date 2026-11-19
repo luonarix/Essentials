@@ -1,7 +1,9 @@
 package dev.local.essentials;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.GestureDescription;
 import android.graphics.Bitmap;
+import android.graphics.Path;
 import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.view.Display;
@@ -90,6 +92,23 @@ public class ShotService extends AccessibilityService {
                     });
         } catch (Exception e) {
             cb.onFail("Không chụp được màn hình");
+        }
+    }
+
+    /** Taps one point with a synthetic gesture; used by the auto clicker. */
+    static boolean tap(float x, float y) {
+        final ShotService s = instance;
+        if (s == null) return false;
+        try {
+            Path path = new Path();
+            path.moveTo(x, y);
+            GestureDescription.StrokeDescription stroke =
+                    new GestureDescription.StrokeDescription(path, 0, 40);
+            GestureDescription gesture = new GestureDescription.Builder()
+                    .addStroke(stroke).build();
+            return s.dispatchGesture(gesture, null, null);
+        } catch (Exception e) {
+            return false;
         }
     }
 

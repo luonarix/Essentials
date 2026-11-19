@@ -48,6 +48,8 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | Văn bản | Lịch sử clipboard, đoạn văn mẫu ghim sẵn, mã QR offline từ văn bản |
 | Màn hình | HUD CPU / FPS / RAM / nhiệt độ, giữ sáng, khoá cảm ứng, soi màu Hex, màn hình đen |
 | Chiến đấu | Tâm ngắm ảo, 4 hẹn giờ song song, khoá độ sáng, khoá xoay, Không làm phiền |
+| Tự động hoá | Tự động chạm một điểm, cảnh báo ngưỡng pin, ảnh tham chiếu nổi |
+| Bảo mật | Tạo mật khẩu mạnh, Base64, MD5, SHA-256 — hoàn toàn offline |
 | Giao diện | Ripple lan từ đúng toạ độ chạm, phản hồi nhún, cascade nội dung, animation màn hình |
 
 ### Công cụ mới trong v8.0
@@ -127,6 +129,29 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
   xác với khung đang nhìn.
 
+### Bản 9.2
+
+- **Tự động chạm** (`#autoclick`): chọn một điểm trên màn hình rồi bấm bắt đầu.
+  Điểm đó được chạm lặp lại theo chu kỳ **50–3000 ms**, kèm độ trễ ngẫu nhiên
+  **0–50%** để nhịp không quá đều. Dùng chính AccessibilityService
+  (`dispatchGesture`) nên không cần root; có chấm nhỏ đánh dấu điểm đang chạm và
+  nút menu sáng màu khi đang chạy.
+- **Mật khẩu & mã hoá** (`#secure`): sinh mật khẩu bằng `SecureRandom`
+  (8–64 ký tự, tùy chọn ký tự đặc biệt), và xử lý văn bản với Base64
+  (mã hoá / giải mã), MD5, SHA-256 bằng `MessageDigest`. Tất cả chạy trên máy,
+  không gửi dữ liệu đi đâu, có nút chép nhanh.
+- **Cảnh báo pin tùy chỉnh** (`#battery`): đặt ngưỡng pin thấp (5–50%, mặc định
+  25%) và ngưỡng pin đầy khi đang sạc (50–100%, mặc định 85%). Chạm ngưỡng sẽ
+  rung nhẹ và hiện thông báo, mỗi ngưỡng chỉ báo một lần cho tới khi pin đổi
+  chiều đủ xa — tránh làm giật khung hình lúc đang chơi game.
+- **Ảnh tham chiếu nổi** (`#refimage`): chọn ảnh từ thư viện và ghim thành cửa
+  sổ nổi. Tắt Xuyên thấu thì kéo để dời, chụm hai ngón để phóng to/thu nhỏ; bật
+  Xuyên thấu để thao tác xuyên qua ảnh. Chỉnh độ mờ 20–100%, kích thước
+  20–100% bề ngang; ảnh, vị trí và thiết lập được lưu lại.
+
+> Tự động chạm cần bật **Trợ năng** cho Essentials (dùng chung quyền với chụp
+> màn hình). Cảnh báo pin chỉ cần quyền **Rung**.
+
 ### Quyền riêng tư
 
 - **Không có quyền `INTERNET`**: ứng dụng không thể gửi dữ liệu ra ngoài.
@@ -173,6 +198,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | `RulerView` | Vẽ lưới đo dp/px và tâm đo trên overlay |
 | `QrCode` | Bộ mã hoá QR thuần Java (byte mode, mức M, version 1–40) |
 | `Crosshair`, `CrosshairView` | Cấu hình và vẽ tâm ngắm overlay |
+| `RefImageActivity` | Chọn ảnh thư viện rồi chuyển URI về thanh bên |
 | `AboutActivity` | Màn hình giấy phép và bản quyền |
 | `NotesActivity`, `StopwatchActivity`, `ConverterActivity` | Công cụ toàn màn hình |
 | `Ui`, `TouchFade` | Màu/khung, layout helper, ripple và animation |

@@ -10,6 +10,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.ClipData;
+import android.content.BroadcastReceiver;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
@@ -17,6 +18,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -26,8 +28,12 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.net.Uri;
 import android.graphics.drawable.GradientDrawable;
+import android.os.BatteryManager;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.Settings;
 import android.os.Handler;
 import android.os.IBinder;
@@ -56,6 +62,9 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -179,6 +188,10 @@ public class SidebarService extends Service {
     private static final String TAB_QR = "qr";
     private static final String TAB_CROSSHAIR = "crosshair";
     private static final String TAB_TIMERS = "timers";
+    private static final String TAB_AUTOCLICK = "autoclick";
+    private static final String TAB_SECURE = "secure";
+    private static final String TAB_BATTERY = "battery";
+    private static final String TAB_REFIMAGE = "refimage";
 
     /** Tab key -> the menu button that toggles it. */
     private static String tabButtonId(String key) {
@@ -191,6 +204,10 @@ public class SidebarService extends Service {
         if (TAB_QR.equals(key)) return "#qr";
         if (TAB_CROSSHAIR.equals(key)) return "#crosshair";
         if (TAB_TIMERS.equals(key)) return "#timers";
+        if (TAB_AUTOCLICK.equals(key)) return "#autoclick";
+        if (TAB_SECURE.equals(key)) return "#secure";
+        if (TAB_BATTERY.equals(key)) return "#battery";
+        if (TAB_REFIMAGE.equals(key)) return "#refimage";
         return null;
     }
 
@@ -241,6 +258,7 @@ public class SidebarService extends Service {
         Side.ensureToolkit(this);
         Side.ensureToolkit8(this);
         Side.ensureToolkit9(this);
+        Side.ensureToolkit92(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastConfigW = getResources().getDisplayMetrics().widthPixels;
@@ -254,6 +272,8 @@ public class SidebarService extends Service {
             scheduleTuck();
             if (Side.hudOn(this)) addHud(false);
             if (Crosshair.enabled(this)) addCrosshair(false);
+            registerBatteryMonitor();
+            if (refPrefs().getBoolean("on", false)) showReference(false);
         }
     }
 
@@ -297,6 +317,9 @@ public class SidebarService extends Service {
             handleAnim = null;
         }
         removeShotPicker();
+        removeAutoPicker(autoPickRoot);
+        removeAutoDot();
+        removeReferenceWindow();
         removeTouchLock(false);
         closeColorPicker(false);
         stopRuler(false);
@@ -326,10 +349,20 @@ public class SidebarService extends Service {
         if (Side.hudOn(this)) addHud(false);
         if (Crosshair.enabled(this)) addCrosshair(false);
         restartTimerTick();
+        if (autoRunning) {
+            showAutoDot();
+            handler.removeCallbacks(autoClickTick);
+            handler.postDelayed(autoClickTick, 160);
+        }
+        if (refPrefs().getBoolean("on", false)) showReference(false);
     }
 
     @Override
     public void onDestroy() {
+        stopAuto(false);
+        unregisterBatteryMonitor();
+        removeAutoPicker(autoPickRoot);
+        removeReferenceWindow();
         removeTouchLock(false);
         closeColorPicker(false);
         stopRuler(false);
@@ -1050,6 +1083,10 @@ public class SidebarService extends Service {
         else if (TAB_QR.equals(key)) openQr();
         else if (TAB_CROSSHAIR.equals(key)) openCrosshair();
         else if (TAB_TIMERS.equals(key)) openTimers();
+        else if (TAB_AUTOCLICK.equals(key)) openAutoClick();
+        else if (TAB_SECURE.equals(key)) openSecure();
+        else if (TAB_BATTERY.equals(key)) openBattery();
+        else if (TAB_REFIMAGE.equals(key)) openRefImage();
         else if (TAB_NOTEDETAIL.equals(key)) openNotes();
     }
 
@@ -1171,7 +1208,8 @@ public class SidebarService extends Service {
     private boolean needsKeyboard() {
         return tabViews.containsKey(TAB_QUICKNOTE)
                 || tabViews.containsKey(TAB_CLIP)
-                || tabViews.containsKey(TAB_QR);
+                || tabViews.containsKey(TAB_QR)
+                || tabViews.containsKey(TAB_SECURE);
     }
 
     /** Warm accent frame on menu buttons whose tab is open. */
@@ -1710,6 +1748,18 @@ public class SidebarService extends Service {
             case "#dnd":
                 iconRes = R.drawable.ic_dnd;
                 break;
+            case "#autoclick":
+                iconRes = R.drawable.ic_autoclick;
+                break;
+            case "#secure":
+                iconRes = R.drawable.ic_secure;
+                break;
+            case "#battery":
+                iconRes = R.drawable.ic_battery_alert;
+                break;
+            case "#refimage":
+                iconRes = R.drawable.ic_refimage;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -1739,7 +1789,8 @@ public class SidebarService extends Service {
     private boolean statefulToggle(String id) {
         return "#hud".equals(id) || "#crosshair".equals(id)
                 || "#brightness".equals(id) || "#rotate".equals(id)
-                || "#dnd".equals(id);
+                || "#dnd".equals(id) || "#autoclick".equals(id)
+                || "#refimage".equals(id);
     }
 
     private boolean toggleOn(String id) {
@@ -1748,6 +1799,8 @@ public class SidebarService extends Service {
         if ("#brightness".equals(id)) return lockPrefs().getBoolean("bright", false);
         if ("#rotate".equals(id)) return lockPrefs().getBoolean("rotate", false);
         if ("#dnd".equals(id)) return dndOn();
+        if ("#autoclick".equals(id)) return autoRunning;
+        if ("#refimage".equals(id)) return refPinned;
         return false;
     }
 
@@ -1764,13 +1817,15 @@ public class SidebarService extends Service {
     }
 
     private int toggleColor(String id) {
-        if ("#crosshair".equals(id)) return TOGGLE_CYAN;
+        if ("#crosshair".equals(id) || "#autoclick".equals(id)
+                || "#refimage".equals(id)) return TOGGLE_CYAN;
         if ("#dnd".equals(id)) return TOGGLE_AMBER;
         return TOGGLE_GREEN;
     }
 
     private int toggleBoxColor(String id) {
-        if ("#crosshair".equals(id)) return TOGGLE_CYAN_BOX;
+        if ("#crosshair".equals(id) || "#autoclick".equals(id)
+                || "#refimage".equals(id)) return TOGGLE_CYAN_BOX;
         if ("#dnd".equals(id)) return TOGGLE_AMBER_BOX;
         return TOGGLE_GREEN_BOX;
     }
@@ -1882,6 +1937,22 @@ public class SidebarService extends Service {
         }
         if ("#dnd".equals(id)) {
             toggleDnd();
+            return;
+        }
+        if ("#autoclick".equals(id)) {
+            toggleTab(TAB_AUTOCLICK);
+            return;
+        }
+        if ("#secure".equals(id)) {
+            toggleTab(TAB_SECURE);
+            return;
+        }
+        if ("#battery".equals(id)) {
+            toggleTab(TAB_BATTERY);
+            return;
+        }
+        if ("#refimage".equals(id)) {
+            toggleTab(TAB_REFIMAGE);
             return;
         }
         if ("#ruler".equals(id)) {
@@ -4957,6 +5028,1295 @@ public class SidebarService extends Service {
         }
         paintToggle("#dnd", dndOn(), true);
     }
+
+
+    // ------------------------------------------------------------ auto clicker
+
+    private boolean autoRunning;
+    private float autoX = -1f;
+    private float autoY = -1f;
+    private int autoInterval = 220;
+    private int autoJitter = 15;
+    private View autoDot;
+    private WindowManager.LayoutParams autoDotParams;
+    private TextView autoStatusView;
+    private TextView autoStartButton;
+    private TextView autoIntervalValue;
+    private TextView autoJitterValue;
+    private final java.util.Random autoRandom = new java.util.Random();
+
+    private SharedPreferences toolPrefs() {
+        return getSharedPreferences("tools", MODE_PRIVATE);
+    }
+
+    private void openAutoClick() {
+        if (tabViews.containsKey(TAB_AUTOCLICK)) return;
+        SharedPreferences sp = toolPrefs();
+        autoInterval = sp.getInt("auto_interval", autoInterval);
+        autoJitter = sp.getInt("auto_jitter", autoJitter);
+        autoX = sp.getFloat("auto_x", autoX);
+        autoY = sp.getFloat("auto_y", autoY);
+        buildingTab = TAB_AUTOCLICK;
+        LinearLayout card = buildAutoPanel();
+        buildingTab = null;
+        addTab(TAB_AUTOCLICK, card);
+    }
+
+    private LinearLayout buildAutoPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Tự động chạm", false, null));
+
+        TextView hint = Ui.text(this,
+                "Một điểm chạm lặp lại theo chu kỳ, có độ trễ ngẫu nhiên nhẹ. "
+                        + "Cần bật Trợ năng cho Essentials.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        autoStatusView = Ui.text(this, "", 12, Ui.ACCENT, true);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.bottomMargin = dp(8);
+        card.addView(autoStatusView, sp);
+
+        LinearLayout chooseRow = Ui.row(this);
+        TextView choose = pill("Chọn điểm trên màn hình", true);
+        choose.setPadding(dp(10), dp(10), dp(10), dp(10));
+        choose.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                pickAutoPoint();
+            }
+        });
+        chooseRow.addView(choose, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(chooseRow);
+
+        card.addView(label("CHU KỲ"));
+        LinearLayout intervalRow = Ui.row(this);
+        TextView minus = pill("\u2212", false);
+        minus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                autoInterval = clamp(autoInterval - 50, 50, 3000);
+                toolPrefs().edit().putInt("auto_interval", autoInterval).apply();
+                paintAutoValues();
+            }
+        });
+        autoIntervalValue = Ui.text(this, autoInterval + " ms", 14, Ui.TEXT, true);
+        autoIntervalValue.setGravity(Gravity.CENTER);
+        TextView plus = pill("+", false);
+        plus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                autoInterval = clamp(autoInterval + 50, 50, 3000);
+                toolPrefs().edit().putInt("auto_interval", autoInterval).apply();
+                paintAutoValues();
+            }
+        });
+        intervalRow.addView(minus);
+        intervalRow.addView(autoIntervalValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        intervalRow.addView(plus);
+        card.addView(intervalRow);
+
+        card.addView(label("ĐỘ TRỄ NGẪU NHIÊN"));
+        LinearLayout jitterRow = Ui.row(this);
+        TextView jminus = pill("\u2212", false);
+        jminus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        jminus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                autoJitter = clamp(autoJitter - 5, 0, 50);
+                toolPrefs().edit().putInt("auto_jitter", autoJitter).apply();
+                paintAutoValues();
+            }
+        });
+        autoJitterValue = Ui.text(this, "\u00b1" + autoJitter + "%", 14, Ui.TEXT, true);
+        autoJitterValue.setGravity(Gravity.CENTER);
+        TextView jplus = pill("+", false);
+        jplus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        jplus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                autoJitter = clamp(autoJitter + 5, 0, 50);
+                toolPrefs().edit().putInt("auto_jitter", autoJitter).apply();
+                paintAutoValues();
+            }
+        });
+        jitterRow.addView(jminus);
+        jitterRow.addView(autoJitterValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        jitterRow.addView(jplus);
+        card.addView(jitterRow);
+
+        autoStartButton = pill("", true);
+        autoStartButton.setPadding(dp(10), dp(12), dp(10), dp(12));
+        autoStartButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (autoRunning) stopAuto(true);
+                else startAuto();
+            }
+        });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(14);
+        card.addView(autoStartButton, bp);
+
+        TextView note = Ui.text(this,
+                "Điểm chạm không chặn thao tác của anh. Mở tab này bấm Dừng để tắt.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+
+        paintAutoValues();
+        return card;
+    }
+
+    private void paintAutoValues() {
+        if (autoIntervalValue != null) autoIntervalValue.setText(autoInterval + " ms");
+        if (autoJitterValue != null) autoJitterValue.setText("\u00b1" + autoJitter + "%");
+        if (autoStatusView != null) {
+            autoStatusView.setText(autoX < 0 || autoY < 0
+                    ? "Chưa chọn điểm chạm"
+                    : "Điểm: " + Math.round(autoX) + ", " + Math.round(autoY)
+                        + (autoRunning ? " · đang chạy" : ""));
+        }
+        if (autoStartButton != null) {
+            autoStartButton.setText(autoRunning ? "Dừng tự động chạm" : "Bắt đầu tự động chạm");
+            setPillState(autoStartButton, !autoRunning);
+        }
+    }
+
+    private void pickAutoPoint() {
+        closePanel(false);
+        hideHandleForCapture();
+        final FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0x40000000);
+
+        final AutoPickView view = new AutoPickView(this);
+        root.addView(view, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final TextView hint = Ui.text(this, "Chạm vào điểm cần tự động bấm", 13, Ui.TEXT, false);
+        hint.setGravity(Gravity.CENTER);
+        hint.setBackground(Ui.framed(0xCC171C24, this, 14));
+        hint.setPadding(dp(14), dp(8), dp(14), dp(8));
+        FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        hp.topMargin = dp(42);
+        root.addView(hint, hp);
+
+        TextView cancel = Ui.text(this, "Huỷ", 13, Ui.MUTED, false);
+        cancel.setGravity(Gravity.CENTER);
+        cancel.setBackground(Ui.framed(0xCC171C24, this, 14));
+        cancel.setPadding(dp(20), dp(9), dp(20), dp(9));
+        cancel.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                removeAutoPicker(root);
+                restoreAfterCapture();
+            }
+        });
+        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        cp.bottomMargin = dp(46);
+        root.addView(cancel, cp);
+
+        view.onPick = new Runnable() {
+            public void run() {
+                autoX = view.pickedX;
+                autoY = view.pickedY;
+                toolPrefs().edit().putFloat("auto_x", autoX).putFloat("auto_y", autoY).apply();
+                removeAutoPicker(root);
+                toast("Đã chọn điểm chạm");
+                handler.postDelayed(new Runnable() {
+                    public void run() {
+                        restoreAfterCapture();
+                    }
+                }, 120);
+            }
+        };
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+                TYPE, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        try {
+            wm.addView(root, lp);
+            autoPickRoot = root;
+        } catch (Exception e) {
+            restoreAfterCapture();
+            toast("Không mở được lớp chọn điểm");
+        }
+    }
+
+    private View autoPickRoot;
+
+    private void removeAutoPicker(View root) {
+        if (root == null) return;
+        try {
+            wm.removeView(root);
+        } catch (Exception ignored) {
+        }
+        if (autoPickRoot == root) autoPickRoot = null;
+    }
+
+    private class AutoPickView extends View {
+        Runnable onPick;
+        float pickedX;
+        float pickedY;
+
+        AutoPickView(Context c) {
+            super(c);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+                pickedX = e.getRawX();
+                pickedY = e.getRawY();
+                if (onPick != null) onPick.run();
+            }
+            return true;
+        }
+    }
+
+    private void startAuto() {
+        if (!ShotService.ready()) {
+            toast("Bật Trợ năng cho Essentials một lần rồi thử lại");
+            openAccessibilitySettings();
+            return;
+        }
+        if (autoX < 0 || autoY < 0) {
+            toast("Chọn điểm chạm trước");
+            return;
+        }
+        autoRunning = true;
+        showAutoDot();
+        paintToggle("#autoclick", true, true);
+        paintAutoValues();
+        handler.removeCallbacks(autoClickTick);
+        handler.postDelayed(autoClickTick, 120);
+        toast("Bắt đầu tự động chạm");
+    }
+
+    private void stopAuto(boolean announce) {
+        autoRunning = false;
+        handler.removeCallbacks(autoClickTick);
+        removeAutoDot();
+        paintToggle("#autoclick", false, true);
+        paintAutoValues();
+        if (announce) toast("Đã dừng tự động chạm");
+    }
+
+    private final Runnable autoClickTick = new Runnable() {
+        public void run() {
+            if (!autoRunning) return;
+            float ix = autoX;
+            float iy = autoY;
+            if (autoJitter > 0) {
+                float span = Math.max(dp(1), dp(9) * autoJitter / 100f);
+                ix += (autoRandom.nextFloat() * 2f - 1f) * span;
+                iy += (autoRandom.nextFloat() * 2f - 1f) * span;
+            }
+            if (!ShotService.tap(ix, iy)) {
+                stopAuto(false);
+                toast("Trợ năng ngắt kết nối, đã dừng");
+                return;
+            }
+            int base = Math.max(40, autoInterval);
+            int spread = Math.round(base * autoJitter / 100f);
+            int delay = base;
+            if (spread > 0) {
+                delay += autoRandom.nextInt(spread * 2 + 1) - spread;
+            }
+            handler.postDelayed(this, Math.max(25, delay));
+        }
+    };
+
+    private void showAutoDot() {
+        if (autoDot != null) updateAutoDot();
+        if (autoDot == null) {
+            View dot = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(0xCC27D3E0);
+            g.setStroke(Math.max(1, dp(1)), 0x99FFFFFF);
+            dot.setBackground(g);
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                    dp(14), dp(14), TYPE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT);
+            lp.gravity = Gravity.TOP | Gravity.START;
+            autoDot = dot;
+            autoDotParams = lp;
+            try {
+                wm.addView(dot, lp);
+            } catch (Exception e) {
+                autoDot = null;
+                autoDotParams = null;
+                return;
+            }
+        }
+        updateAutoDot();
+    }
+
+    private void updateAutoDot() {
+        if (autoDot == null || autoDotParams == null) return;
+        autoDotParams.x = clamp(Math.round(autoX) - dp(7), 0, Math.max(0, screenW() - dp(14)));
+        autoDotParams.y = clamp(Math.round(autoY) - dp(7), 0, Math.max(0, screenH() - dp(14)));
+        try {
+            wm.updateViewLayout(autoDot, autoDotParams);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void removeAutoDot() {
+        if (autoDot == null) return;
+        try {
+            wm.removeView(autoDot);
+        } catch (Exception ignored) {
+        }
+        autoDot = null;
+        autoDotParams = null;
+    }
+
+    // ------------------------------------------------------------ password & hash
+
+    private int passLen = 16;
+    private boolean passSpecial = true;
+
+    private void openSecure() {
+        if (tabViews.containsKey(TAB_SECURE)) return;
+        SharedPreferences sp = getSharedPreferences("secure", MODE_PRIVATE);
+        passLen = clamp(sp.getInt("len", passLen), 8, 64);
+        passSpecial = sp.getBoolean("special", passSpecial);
+        buildingTab = TAB_SECURE;
+        LinearLayout card = buildSecurePanel();
+        buildingTab = null;
+        addTab(TAB_SECURE, card);
+    }
+
+    private LinearLayout buildSecurePanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Mật khẩu & mã hoá", false, null));
+
+        TextView hint = Ui.text(this,
+                "Tạo mật khẩu mạnh và mã hoá văn bản ngay trên máy, không dùng mạng.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        card.addView(hint, hp);
+
+        card.addView(label("MẬT KHẨU NGẪU NHIÊN"));
+        final TextView password = Ui.text(this, "", 15, Ui.ACCENT, true);
+        password.setTypeface(android.graphics.Typeface.MONOSPACE);
+        password.setTextIsSelectable(true);
+        password.setBackground(Ui.framed(ITEM_BG_SOFT, this, 12));
+        password.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        final TextView lenValue = Ui.text(this, passLen + " ký tự", 12, Ui.TEXT, false);
+        lenValue.setGravity(Gravity.CENTER);
+        final TextView special = pill(passSpecial ? "Có ký tự đặc biệt" : "Chỉ chữ & số", false);
+        special.setPadding(dp(10), dp(7), dp(10), dp(7));
+        special.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                passSpecial = !passSpecial;
+                getSharedPreferences("secure", MODE_PRIVATE).edit()
+                        .putBoolean("special", passSpecial).apply();
+                special.setText(passSpecial ? "Có ký tự đặc biệt" : "Chỉ chữ & số");
+                setPillState(special, passSpecial);
+            }
+        });
+
+        final Runnable generate = new Runnable() {
+            public void run() {
+                password.setText(generatePassword(passLen, passSpecial));
+            }
+        };
+
+        LinearLayout lenRow = Ui.row(this);
+        TextView minus = pill("\u2212", false);
+        minus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                passLen = clamp(passLen - 4, 8, 64);
+                lenValue.setText(passLen + " ký tự");
+                getSharedPreferences("secure", MODE_PRIVATE).edit()
+                        .putInt("len", passLen).apply();
+            }
+        });
+        TextView plus = pill("+", false);
+        plus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                passLen = clamp(passLen + 4, 8, 64);
+                lenValue.setText(passLen + " ký tự");
+                getSharedPreferences("secure", MODE_PRIVATE).edit()
+                        .putInt("len", passLen).apply();
+            }
+        });
+        lenRow.addView(minus);
+        lenRow.addView(lenValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        lenRow.addView(plus);
+        LinearLayout.LayoutParams lrp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lrp.topMargin = dp(2);
+        card.addView(lenRow, lrp);
+
+        LinearLayout specialRow = Ui.row(this);
+        specialRow.addView(special);
+        LinearLayout.LayoutParams srp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        srp.topMargin = dp(6);
+        card.addView(specialRow, srp);
+        setPillState(special, passSpecial);
+
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pp.topMargin = dp(10);
+        card.addView(password, pp);
+
+        LinearLayout passActions = Ui.row(this);
+        TextView renew = pill("Tạo mới", true);
+        renew.setPadding(dp(10), dp(9), dp(10), dp(9));
+        renew.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                generate.run();
+                Ui.pop(password);
+            }
+        });
+        TextView copyPass = pill("Chép", false);
+        copyPass.setPadding(dp(10), dp(9), dp(10), dp(9));
+        copyPass.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (password.getText().length() > 0) copyToClipboard(password.getText().toString());
+            }
+        });
+        passActions.addView(renew, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams cp2 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cp2.leftMargin = dp(6);
+        passActions.addView(copyPass, cp2);
+        LinearLayout.LayoutParams pap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pap.topMargin = dp(8);
+        card.addView(passActions, pap);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        dl.topMargin = dp(14);
+        dl.bottomMargin = dp(2);
+        card.addView(divider, dl);
+
+        card.addView(label("VĂN BẢN & MÃ HOÁ"));
+        final EditText input = new EditText(this);
+        input.setBackground(Ui.framed(0xFF0E1116, this, 12));
+        input.setTextColor(Ui.TEXT);
+        input.setHintTextColor(0xFF6A7382);
+        input.setHint("Nhập văn bản cần xử lý...");
+        input.setTextSize(13);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setPadding(dp(12), dp(9), dp(12), dp(9));
+        input.setMinLines(2);
+        input.setMaxLines(4);
+        card.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(74)));
+
+        final TextView output = Ui.text(this, "", 12, Ui.TEXT, false);
+        output.setTypeface(android.graphics.Typeface.MONOSPACE);
+        output.setTextIsSelectable(true);
+        output.setBackground(Ui.framed(ITEM_BG_SOFT, this, 12));
+        output.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        LinearLayout actionRow1 = Ui.row(this);
+        TextView b64 = pill("Base64", false);
+        b64.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(encodeBase64(input.getText().toString()));
+            }
+        });
+        TextView unb64 = pill("Giải Base64", false);
+        unb64.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String r = decodeBase64(input.getText().toString());
+                output.setText(r == null ? "Base64 không hợp lệ" : r);
+            }
+        });
+        actionRow1.addView(b64, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams a1 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        a1.leftMargin = dp(6);
+        actionRow1.addView(unb64, a1);
+
+        LinearLayout actionRow2 = Ui.row(this);
+        TextView md5 = pill("MD5", false);
+        md5.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(hash("MD5", input.getText().toString()));
+            }
+        });
+        TextView sha = pill("SHA-256", false);
+        sha.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(hash("SHA-256", input.getText().toString()));
+            }
+        });
+        actionRow2.addView(md5, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams a2 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        a2.leftMargin = dp(6);
+        actionRow2.addView(sha, a2);
+
+        LinearLayout.LayoutParams ar1 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ar1.topMargin = dp(8);
+        card.addView(actionRow1, ar1);
+        LinearLayout.LayoutParams ar2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ar2.topMargin = dp(6);
+        card.addView(actionRow2, ar2);
+
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        op.topMargin = dp(8);
+        card.addView(output, op);
+
+        TextView copyOut = pill("Chép kết quả", false);
+        copyOut.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (output.getText().length() > 0) copyToClipboard(output.getText().toString());
+            }
+        });
+        LinearLayout.LayoutParams cop = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cop.topMargin = dp(8);
+        card.addView(copyOut, cop);
+
+        generate.run();
+        return card;
+    }
+
+    private String generatePassword(int length, boolean special) {
+        String upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+        String lower = "abcdefghijkmnopqrstuvwxyz";
+        String digits = "23456789";
+        String extra = "!@#$%^&*()-_=+[]{}";
+        String pool = upper + lower + digits + (special ? extra : "");
+        SecureRandom rnd = new SecureRandom();
+        StringBuilder sb = new StringBuilder(length);
+        sb.append(upper.charAt(rnd.nextInt(upper.length())));
+        sb.append(lower.charAt(rnd.nextInt(lower.length())));
+        sb.append(digits.charAt(rnd.nextInt(digits.length())));
+        if (special) sb.append(extra.charAt(rnd.nextInt(extra.length())));
+        while (sb.length() < length) sb.append(pool.charAt(rnd.nextInt(pool.length())));
+        for (int i = sb.length() - 1; i > 0; i--) {
+            int j = rnd.nextInt(i + 1);
+            char t = sb.charAt(i);
+            sb.setCharAt(i, sb.charAt(j));
+            sb.setCharAt(j, t);
+        }
+        return sb.toString();
+    }
+
+    private String encodeBase64(String text) {
+        try {
+            return android.util.Base64.encodeToString(
+                    text.getBytes("UTF-8"), android.util.Base64.NO_WRAP);
+        } catch (Exception e) {
+            return "Không mã hoá được";
+        }
+    }
+
+    private String decodeBase64(String text) {
+        try {
+            byte[] bytes = android.util.Base64.decode(
+                    text.trim(), android.util.Base64.DEFAULT);
+            return new String(bytes, "UTF-8");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String hash(String algorithm, String text) {
+        try {
+            MessageDigest md = MessageDigest.getInstance(algorithm);
+            byte[] d = md.digest(text.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder(d.length * 2);
+            for (byte b : d) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "Không băm được";
+        }
+    }
+
+    // ------------------------------------------------------------ battery alert
+
+    private boolean battLowOn;
+    private boolean battFullOn;
+    private boolean battLowFired;
+    private boolean battFullFired;
+    private int battLowPct = 25;
+    private int battFullPct = 85;
+    private int battPct = -1;
+    private boolean battCharging;
+    private TextView battStatusView;
+
+    private SharedPreferences battPrefs() {
+        return getSharedPreferences("battery", MODE_PRIVATE);
+    }
+
+    private void openBattery() {
+        if (tabViews.containsKey(TAB_BATTERY)) return;
+        SharedPreferences sp = battPrefs();
+        battLowOn = sp.getBoolean("low_on", false);
+        battFullOn = sp.getBoolean("full_on", false);
+        battLowPct = clamp(sp.getInt("low_pct", battLowPct), 5, 50);
+        battFullPct = clamp(sp.getInt("full_pct", battFullPct), 50, 100);
+        buildingTab = TAB_BATTERY;
+        LinearLayout card = buildBatteryPanel();
+        buildingTab = null;
+        addTab(TAB_BATTERY, card);
+        refreshBatteryStatus();
+    }
+
+    private LinearLayout buildBatteryPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Cảnh báo pin", false, null));
+
+        battStatusView = Ui.text(this, "Pin: --%", 13, Ui.ACCENT, true);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.topMargin = dp(2);
+        sp.bottomMargin = dp(6);
+        card.addView(battStatusView, sp);
+
+        card.addView(batteryThresholdRow(true));
+        card.addView(batteryThresholdRow(false));
+
+        TextView note = Ui.text(this,
+                "Rung nhẹ và hiện thông báo khi pin chạm ngưỡng. Mỗi ngưỡng chỉ báo "
+                        + "một lần cho tới khi pin đổi chiều đủ xa.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(12);
+        card.addView(note, np);
+        return card;
+    }
+
+    private View batteryThresholdRow(final boolean low) {
+        LinearLayout box = Ui.col(this);
+        box.setBackground(Ui.framed(ITEM_BG_SOFT, this, 14));
+        box.setPadding(dp(11), dp(9), dp(11), dp(10));
+
+        LinearLayout top = Ui.row(this);
+        TextView name = Ui.text(this, low ? "Báo khi pin thấp" : "Báo khi pin đầy",
+                13, Ui.TEXT, false);
+        top.addView(name, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView toggle = pill(low ? (battLowOn ? "Bật" : "Tắt")
+                : (battFullOn ? "Bật" : "Tắt"), false);
+        toggle.setPadding(dp(12), dp(6), dp(12), dp(6));
+        setPillState(toggle, low ? battLowOn : battFullOn);
+        toggle.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (low) {
+                    battLowOn = !battLowOn;
+                    battPrefs().edit().putBoolean("low_on", battLowOn).apply();
+                    toggle.setText(battLowOn ? "Bật" : "Tắt");
+                    setPillState(toggle, battLowOn);
+                } else {
+                    battFullOn = !battFullOn;
+                    battPrefs().edit().putBoolean("full_on", battFullOn).apply();
+                    toggle.setText(battFullOn ? "Bật" : "Tắt");
+                    setPillState(toggle, battFullOn);
+                }
+                if (battPct >= 0) handleBattery(battPct, battCharging);
+            }
+        });
+        top.addView(toggle);
+        box.addView(top);
+
+        final TextView value = Ui.text(this,
+                (low ? battLowPct : battFullPct) + "%", 18, Ui.ACCENT, true);
+        value.setTypeface(android.graphics.Typeface.MONOSPACE);
+
+        LinearLayout row = Ui.row(this);
+        TextView minus = pill("\u22125", false);
+        minus.setPadding(dp(11), dp(6), dp(11), dp(6));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (low) battLowPct = clamp(battLowPct - 5, 5, 50);
+                else battFullPct = clamp(battFullPct - 5, 50, 100);
+                value.setText((low ? battLowPct : battFullPct) + "%");
+                battPrefs().edit()
+                        .putInt(low ? "low_pct" : "full_pct",
+                                low ? battLowPct : battFullPct).apply();
+            }
+        });
+        TextView plus = pill("+5", false);
+        plus.setPadding(dp(11), dp(6), dp(11), dp(6));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (low) battLowPct = clamp(battLowPct + 5, 5, 50);
+                else battFullPct = clamp(battFullPct + 5, 50, 100);
+                value.setText((low ? battLowPct : battFullPct) + "%");
+                battPrefs().edit()
+                        .putInt(low ? "low_pct" : "full_pct",
+                                low ? battLowPct : battFullPct).apply();
+            }
+        });
+        row.addView(minus);
+        row.addView(value, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(plus);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(8);
+        box.addView(row, rp);
+
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(10);
+        box.setLayoutParams(bp);
+        return box;
+    }
+
+    private void refreshBatteryStatus() {
+        if (battStatusView == null) return;
+        if (battPct < 0) {
+            battStatusView.setText("Pin: --%");
+            return;
+        }
+        battStatusView.setText("Pin: " + battPct + "% · "
+                + (battCharging ? "đang sạc" : "đang dùng pin"));
+    }
+
+    private void handleBattery(int pct, boolean charging) {
+        battPct = pct;
+        battCharging = charging;
+        if (charging || pct > battLowPct + 2) battLowFired = false;
+        if (!charging || pct < battFullPct - 2) battFullFired = false;
+
+        if (battLowOn && !charging && pct <= battLowPct && !battLowFired) {
+            battLowFired = true;
+            alertBattery("Pin thấp · " + pct + "%", "Cắm sạc để tránh tụt nguồn");
+        }
+        if (battFullOn && charging && pct >= battFullPct && !battFullFired) {
+            battFullFired = true;
+            alertBattery("Pin đã đầy · " + pct + "%", "Rút sạc để giữ tuổi thọ pin");
+        }
+        refreshBatteryStatus();
+    }
+
+    private void alertBattery(String title, String sub) {
+        toast(title + " · " + sub);
+        try {
+            Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            if (v == null || !v.hasVibrator()) return;
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(VibrationEffect.createOneShot(170,
+                        VibrationEffect.DEFAULT_AMPLITUDE));
+            } else {
+                v.vibrate(170);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private BroadcastReceiver batteryReceiver;
+
+    private void registerBatteryMonitor() {
+        if (batteryReceiver != null) return;
+        SharedPreferences sp = battPrefs();
+        battLowOn = sp.getBoolean("low_on", false);
+        battFullOn = sp.getBoolean("full_on", false);
+        battLowPct = clamp(sp.getInt("low_pct", battLowPct), 5, 50);
+        battFullPct = clamp(sp.getInt("full_pct", battFullPct), 50, 100);
+        batteryReceiver = new BroadcastReceiver() {
+            public void onReceive(Context c, Intent i) {
+                if (i == null) return;
+                int level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                if (level < 0 || scale <= 0) return;
+                int pct = Math.round(level * 100f / scale);
+                int status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                        || status == BatteryManager.BATTERY_STATUS_FULL;
+                handleBattery(pct, charging);
+            }
+        };
+        try {
+            registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        } catch (Exception e) {
+            batteryReceiver = null;
+        }
+    }
+
+    private void unregisterBatteryMonitor() {
+        if (batteryReceiver == null) return;
+        try {
+            unregisterReceiver(batteryReceiver);
+        } catch (Exception ignored) {
+        }
+        batteryReceiver = null;
+    }
+
+    // ------------------------------------------------------------ floating reference image
+
+    private ImageView refView;
+    private WindowManager.LayoutParams refParams;
+    private Bitmap refBitmap;
+    private boolean refPinned;
+    private boolean refClickThrough;
+    private int refAlpha = 92;
+    private int refWidthPct = 60;
+    private TextView refStateView;
+
+    private SharedPreferences refPrefs() {
+        return getSharedPreferences("refimage", MODE_PRIVATE);
+    }
+
+    static void setReferenceImage(Context c, Uri uri) {
+        if (uri == null) return;
+        c.getSharedPreferences("refimage", Context.MODE_PRIVATE).edit()
+                .putString("uri", uri.toString())
+                .putBoolean("on", true)
+                .apply();
+        if (current != null) current.showReference(true);
+    }
+
+    private void openRefImage() {
+        if (tabViews.containsKey(TAB_REFIMAGE)) return;
+        SharedPreferences sp = refPrefs();
+        refAlpha = clamp(sp.getInt("alpha", refAlpha), 20, 100);
+        refClickThrough = sp.getBoolean("click", refClickThrough);
+        refWidthPct = clamp(sp.getInt("width", refWidthPct), 20, 100);
+        buildingTab = TAB_REFIMAGE;
+        LinearLayout card = buildRefPanel();
+        buildingTab = null;
+        addTab(TAB_REFIMAGE, card);
+        paintRefState();
+    }
+
+    private LinearLayout buildRefPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Ảnh tham chiếu nổi", false, null));
+
+        TextView hint = Ui.text(this,
+                "Ghim một ảnh lên màn hình để vừa xem mẫu vừa vẽ hoặc làm việc ở app khác.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        refStateView = Ui.text(this, "", 12, Ui.ACCENT, true);
+        LinearLayout.LayoutParams ssp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ssp.bottomMargin = dp(8);
+        card.addView(refStateView, ssp);
+
+        TextView choose = pill("Chọn ảnh từ thư viện", true);
+        choose.setPadding(dp(10), dp(11), dp(10), dp(11));
+        choose.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                closePanel(false);
+                try {
+                    Intent i = new Intent(SidebarService.this, RefImageActivity.class);
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    toast("Không mở được thư viện ảnh");
+                }
+            }
+        });
+        card.addView(choose);
+
+        LinearLayout pinRow = Ui.row(this);
+        final TextView pin = pill("", false);
+        pin.setPadding(dp(8), dp(10), dp(8), dp(10));
+        pin.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (refPinned) removeReference(true);
+                else showReference(true);
+                paintRefState();
+            }
+        });
+        pinRow.addView(pin, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView click = pill("", false);
+        click.setPadding(dp(8), dp(10), dp(8), dp(10));
+        click.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                refClickThrough = !refClickThrough;
+                refPrefs().edit().putBoolean("click", refClickThrough).apply();
+                applyRefTouchMode();
+                paintRefState();
+            }
+        });
+        LinearLayout.LayoutParams clp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        clp.leftMargin = dp(6);
+        pinRow.addView(click, clp);
+        LinearLayout.LayoutParams prp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        prp.topMargin = dp(8);
+        card.addView(pinRow, prp);
+
+        card.addView(label("ĐỘ MỜ"));
+        final TextView alphaValue = Ui.text(this, refAlpha + "%", 12, Ui.TEXT, true);
+        alphaValue.setGravity(Gravity.CENTER);
+        LinearLayout alphaRow = Ui.row(this);
+        TextView aminus = pill("\u2212", false);
+        aminus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        aminus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                refAlpha = clamp(refAlpha - 10, 20, 100);
+                refPrefs().edit().putInt("alpha", refAlpha).apply();
+                alphaValue.setText(refAlpha + "%");
+                applyRefAlpha();
+            }
+        });
+        TextView aplus = pill("+", false);
+        aplus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        aplus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                refAlpha = clamp(refAlpha + 10, 20, 100);
+                refPrefs().edit().putInt("alpha", refAlpha).apply();
+                alphaValue.setText(refAlpha + "%");
+                applyRefAlpha();
+            }
+        });
+        alphaRow.addView(aminus);
+        alphaRow.addView(alphaValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        alphaRow.addView(aplus);
+        card.addView(alphaRow);
+
+        card.addView(label("KÍCH THƯỚC"));
+        final TextView widthValue = Ui.text(this, refWidthPct + "% bề ngang", 12, Ui.TEXT, true);
+        widthValue.setGravity(Gravity.CENTER);
+        LinearLayout sizeRow = Ui.row(this);
+        TextView sminus = pill("\u2212", false);
+        sminus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        sminus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                refWidthPct = clamp(refWidthPct - 10, 20, 100);
+                refPrefs().edit().putInt("width", refWidthPct).apply();
+                widthValue.setText(refWidthPct + "% bề ngang");
+                applyRefSize();
+            }
+        });
+        TextView splus = pill("+", false);
+        splus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        splus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                refWidthPct = clamp(refWidthPct + 10, 20, 100);
+                refPrefs().edit().putInt("width", refWidthPct).apply();
+                widthValue.setText(refWidthPct + "% bề ngang");
+                applyRefSize();
+            }
+        });
+        sizeRow.addView(sminus);
+        sizeRow.addView(widthValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        sizeRow.addView(splus);
+        card.addView(sizeRow);
+
+        TextView note = Ui.text(this,
+                "Khi tắt Xuyên thấu: kéo ảnh để dời, chụm hai ngón để phóng to/thu nhỏ. "
+                        + "Bật Xuyên thấu để vẽ xuyên qua ảnh.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(12);
+        card.addView(note, np);
+
+        refPinButton = pin;
+        refClickButton = click;
+        paintRefState();
+        return card;
+    }
+
+    private TextView refPinButton;
+    private TextView refClickButton;
+
+    private void paintRefState() {
+        boolean hasImage = refPrefs().getString("uri", null) != null;
+        if (refStateView != null) {
+            refStateView.setText(refPinned ? "Đang ghim ảnh trên màn hình"
+                    : hasImage ? "Đã chọn ảnh · chưa ghim"
+                    : "Chưa chọn ảnh");
+        }
+        if (refPinButton != null) {
+            refPinButton.setText(refPinned ? "Gỡ ảnh khỏi màn hình" : "Ghim ảnh lên màn hình");
+            setPillState(refPinButton, !refPinned);
+        }
+        if (refClickButton != null) {
+            refClickButton.setText(refClickThrough ? "Xuyên thấu: bật" : "Xuyên thấu: tắt");
+            setPillState(refClickButton, refClickThrough);
+        }
+    }
+
+    private Bitmap loadRefBitmap(Uri uri) {
+        InputStream in = null;
+        try {
+            BitmapFactory.Options probe = new BitmapFactory.Options();
+            probe.inJustDecodeBounds = true;
+            in = getContentResolver().openInputStream(uri);
+            BitmapFactory.decodeStream(in, null, probe);
+            if (in != null) in.close();
+            if (probe.outWidth <= 0 || probe.outHeight <= 0) return null;
+            int sample = 1;
+            while (probe.outWidth / (sample * 2) >= 1400
+                    && probe.outHeight / (sample * 2) >= 1400) {
+                sample *= 2;
+            }
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            in = getContentResolver().openInputStream(uri);
+            return BitmapFactory.decodeStream(in, null, opts);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void showReference(boolean announce) {
+        String raw = refPrefs().getString("uri", null);
+        if (raw == null) {
+            toast("Chọn ảnh tham chiếu trước");
+            return;
+        }
+        Uri uri;
+        try {
+            uri = Uri.parse(raw);
+        } catch (Exception e) {
+            toast("Đường dẫn ảnh không hợp lệ");
+            return;
+        }
+        removeReferenceWindow();
+        Bitmap bmp = loadRefBitmap(uri);
+        if (bmp == null) {
+            toast("Không đọc được ảnh");
+            return;
+        }
+        refBitmap = bmp;
+        int w = Math.max(dp(80), Math.round(screenW() * refWidthPct / 100f));
+        int h = Math.max(dp(80), Math.round(w * bmp.getHeight() / (float) bmp.getWidth()));
+        if (h > screenH() - dp(24)) {
+            h = Math.max(dp(80), screenH() - dp(24));
+            w = Math.max(dp(80), Math.round(h * bmp.getWidth() / (float) bmp.getHeight()));
+        }
+
+        ImageView view = new ImageView(this);
+        view.setImageBitmap(bmp);
+        view.setScaleType(ImageView.ScaleType.FIT_XY);
+        view.setAlpha(refAlpha / 100f);
+        view.setOnTouchListener(refTouch);
+
+        SharedPreferences sp = refPrefs();
+        int x = clamp(sp.getInt("x", dp(16)), 0, Math.max(0, screenW() - w));
+        int y = clamp(sp.getInt("y", screenH() / 3), 0, Math.max(0, screenH() - h));
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                w, h, TYPE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | (refClickThrough ? WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : 0)
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.x = x;
+        lp.y = y;
+
+        try {
+            wm.addView(view, lp);
+        } catch (Exception e) {
+            if (refBitmap != null) refBitmap.recycle();
+            refBitmap = null;
+            toast("Không ghim được ảnh");
+            return;
+        }
+        refView = view;
+        refParams = lp;
+        refPinned = true;
+        refPrefs().edit().putBoolean("on", true).apply();
+        paintToggle("#refimage", true, true);
+        paintRefState();
+        if (announce) toast("Đã ghim ảnh tham chiếu");
+    }
+
+    private void removeReference(boolean announce) {
+        removeReferenceWindow();
+        refPrefs().edit().putBoolean("on", false).apply();
+        paintToggle("#refimage", false, true);
+        paintRefState();
+        if (announce) toast("Đã gỡ ảnh");
+    }
+
+    private void removeReferenceWindow() {
+        if (refView != null) {
+            try {
+                wm.removeView(refView);
+            } catch (Exception ignored) {
+            }
+            refView = null;
+        }
+        refParams = null;
+        if (refBitmap != null) {
+            refBitmap.recycle();
+            refBitmap = null;
+        }
+        refPinned = false;
+    }
+
+    private void applyRefAlpha() {
+        if (refView != null) refView.setAlpha(refAlpha / 100f);
+    }
+
+    private void applyRefTouchMode() {
+        if (refView == null || refParams == null) return;
+        refParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | (refClickThrough ? WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : 0)
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
+        try {
+            wm.updateViewLayout(refView, refParams);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void applyRefSize() {
+        if (refView == null || refParams == null || refBitmap == null) return;
+        int w = Math.max(dp(80), Math.round(screenW() * refWidthPct / 100f));
+        int h = Math.max(dp(80), Math.round(w * refBitmap.getHeight()
+                / (float) refBitmap.getWidth()));
+        if (h > screenH() - dp(24)) {
+            h = Math.max(dp(80), screenH() - dp(24));
+            w = Math.max(dp(80), Math.round(h * refBitmap.getWidth()
+                    / (float) refBitmap.getHeight()));
+        }
+        refParams.width = w;
+        refParams.height = h;
+        refParams.x = clamp(refParams.x, 0, Math.max(0, screenW() - w));
+        refParams.y = clamp(refParams.y, 0, Math.max(0, screenH() - h));
+        try {
+            wm.updateViewLayout(refView, refParams);
+        } catch (Exception ignored) {
+        }
+        refPrefs().edit().putInt("x", refParams.x).putInt("y", refParams.y).apply();
+    }
+
+    private final View.OnTouchListener refTouch = new View.OnTouchListener() {
+        private float downX;
+        private float downY;
+        private int startX;
+        private int startY;
+        private float startDist;
+        private int startW;
+        private int startH;
+        private boolean pinching;
+
+        public boolean onTouch(View view, MotionEvent e) {
+            if (refParams == null) return false;
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = e.getRawX();
+                    downY = e.getRawY();
+                    startX = refParams.x;
+                    startY = refParams.y;
+                    pinching = false;
+                    return true;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    if (e.getPointerCount() >= 2) {
+                        pinching = true;
+                        startDist = spacing(e);
+                        startW = refParams.width;
+                        startH = refParams.height;
+                    }
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (pinching && e.getPointerCount() >= 2 && startDist > 1f) {
+                        float k = spacing(e) / startDist;
+                        int w = clamp(Math.round(startW * k), dp(70), screenW());
+                        int h = Math.max(dp(70), Math.round(w * startH / (float) startW));
+                        if (h > screenH()) {
+                            h = screenH();
+                            w = Math.max(dp(70), Math.round(h * startW / (float) startH));
+                        }
+                        int cx = refParams.x + refParams.width / 2;
+                        int cy = refParams.y + refParams.height / 2;
+                        refParams.width = w;
+                        refParams.height = h;
+                        refParams.x = clamp(cx - w / 2, 0, Math.max(0, screenW() - w));
+                        refParams.y = clamp(cy - h / 2, 0, Math.max(0, screenH() - h));
+                        try {
+                            wm.updateViewLayout(refView, refParams);
+                        } catch (Exception ignored) {
+                        }
+                    } else if (!pinching) {
+                        refParams.x = clamp(startX + Math.round(e.getRawX() - downX),
+                                -refParams.width / 2,
+                                Math.max(-refParams.width / 2, screenW() - refParams.width / 2));
+                        refParams.y = clamp(startY + Math.round(e.getRawY() - downY),
+                                -refParams.height / 2,
+                                Math.max(-refParams.height / 2, screenH() - refParams.height / 2));
+                        try {
+                            wm.updateViewLayout(refView, refParams);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (refParams != null) {
+                        refParams.x = clamp(refParams.x, 0,
+                                Math.max(0, screenW() - refParams.width));
+                        refParams.y = clamp(refParams.y, 0,
+                                Math.max(0, screenH() - refParams.height));
+                        try {
+                            wm.updateViewLayout(refView, refParams);
+                        } catch (Exception ignored) {
+                        }
+                        refPrefs().edit()
+                                .putInt("x", refParams.x)
+                                .putInt("y", refParams.y)
+                                .apply();
+                        refWidthPct = clamp(Math.round(refParams.width * 100f / screenW()),
+                                20, 100);
+                        refPrefs().edit().putInt("width", refWidthPct).apply();
+                    }
+                    pinching = false;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private float spacing(MotionEvent e) {
+            if (e.getPointerCount() < 2) return 1f;
+            float dx = e.getX(0) - e.getX(1);
+            float dy = e.getY(0) - e.getY(1);
+            return Math.max(1f, (float) Math.hypot(dx, dy));
+        }
+    };
 
     // ------------------------------------------------------------ ruler overlay
 

@@ -21,7 +21,8 @@ final class Side {
             "#hud", "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
             "#color", "#lock", "#back", "#home", "#recents",
             "#ruler", "#tally", "#clip", "#black", "#qr",
-            "#crosshair", "#timers", "#brightness", "#rotate", "#dnd", "#menu"
+            "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
+            "#autoclick", "#secure", "#battery", "#refimage", "#menu"
     };
 
     static final String[] LABELS = {
@@ -33,7 +34,8 @@ final class Side {
             "Thước đo & lưới", "Bộ đếm & xúc xắc", "Clipboard & đoạn mẫu",
             "Màn hình đen", "Mã QR offline", "Tâm ngắm ảo", "Đa hẹn giờ",
             "Khoá độ sáng", "Khoá xoay màn hình", "Không làm phiền",
-            "Menu đầy đủ"
+            "Tự động chạm", "Mật khẩu & mã hoá", "Cảnh báo pin",
+            "Ảnh tham chiếu nổi", "Menu đầy đủ"
     };
 
     /** Tools added in v7.0, appended once to lists saved by older versions. */
@@ -52,6 +54,11 @@ final class Side {
             "#crosshair", "#timers", "#brightness", "#rotate", "#dnd"
     };
 
+    /** Tools added in v9.2, appended once to lists saved by older versions. */
+    static final String[] V92_ITEMS = {
+            "#autoclick", "#secure", "#battery", "#refimage"
+    };
+
     private Side() {}
 
     static List<String> items(Context c) {
@@ -63,7 +70,8 @@ final class Side {
                     "#power", "#notifications", "#quicksettings", "#ringer", "#caffeine",
                     "#color", "#lock", "#back", "#home", "#recents",
                     "#ruler", "#tally", "#clip", "#black", "#qr",
-                    "#crosshair", "#timers", "#brightness", "#rotate", "#dnd"));
+                    "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
+                    "#autoclick", "#secure", "#battery", "#refimage"));
         }
         List<String> out = new ArrayList<>();
         for (String s : raw.split(",")) {
@@ -187,6 +195,25 @@ final class Side {
         }
         setItems(c, ids);
         sp.edit().putBoolean("tools_v9", true).apply();
+    }
+
+    /** Adds the v9.2 tools once, keeping "#menu" at the end of the list. */
+    static void ensureToolkit92(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        if (sp.getBoolean("tools_v92", false)) return;
+        List<String> ids = items(c);
+        int menu = ids.indexOf("#menu");
+        for (String id : V92_ITEMS) {
+            if (ids.contains(id)) continue;
+            if (menu >= 0) {
+                ids.add(menu, id);
+                menu++;
+            } else {
+                ids.add(id);
+            }
+        }
+        setItems(c, ids);
+        sp.edit().putBoolean("tools_v92", true).apply();
     }
 
     /** Default countdown lengths for the four multi-timer slots, in minutes. */
