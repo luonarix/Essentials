@@ -22,7 +22,7 @@ final class Side {
             "#color", "#lock", "#back", "#home", "#recents",
             "#ruler", "#tally", "#clip", "#black", "#qr",
             "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
-            "#autoclick", "#secure", "#battery", "#refimage", "#menu"
+            "#autoclick", "#secure", "#battery", "#refimage", "#side", "#menu"
     };
 
     static final String[] LABELS = {
@@ -35,7 +35,7 @@ final class Side {
             "Màn hình đen", "Mã QR offline", "Tâm ngắm ảo", "Đa hẹn giờ",
             "Khoá độ sáng", "Khoá xoay màn hình", "Không làm phiền",
             "Tự động chạm", "Mật khẩu & mã hoá", "Cảnh báo pin",
-            "Ảnh tham chiếu nổi", "Menu đầy đủ"
+            "Ảnh tham chiếu nổi", "Đổi bên thanh bên", "Menu đầy đủ"
     };
 
     /** Tools added in v7.0, appended once to lists saved by older versions. */
@@ -59,6 +59,11 @@ final class Side {
             "#autoclick", "#secure", "#battery", "#refimage"
     };
 
+    /** Actions added in v1.0.1, appended once to lists saved by older versions. */
+    static final String[] V101_ITEMS = {
+            "#side"
+    };
+
     private Side() {}
 
     static List<String> items(Context c) {
@@ -71,7 +76,7 @@ final class Side {
                     "#color", "#lock", "#back", "#home", "#recents",
                     "#ruler", "#tally", "#clip", "#black", "#qr",
                     "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
-                    "#autoclick", "#secure", "#battery", "#refimage"));
+                    "#autoclick", "#secure", "#battery", "#refimage", "#side"));
         }
         List<String> out = new ArrayList<>();
         for (String s : raw.split(",")) {
@@ -214,6 +219,36 @@ final class Side {
         }
         setItems(c, ids);
         sp.edit().putBoolean("tools_v92", true).apply();
+    }
+
+    /** Adds the v1.0.1 side switch once, keeping "#menu" last when present. */
+    static void ensureToolkit101(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        if (sp.getBoolean("tools_v101", false)) return;
+        List<String> ids = items(c);
+        int menu = ids.indexOf("#menu");
+        for (String id : V101_ITEMS) {
+            if (ids.contains(id)) continue;
+            if (menu >= 0) {
+                ids.add(menu, id);
+                menu++;
+            } else {
+                ids.add(id);
+            }
+        }
+        setItems(c, ids);
+        sp.edit().putBoolean("tools_v101", true).apply();
+    }
+
+    /** True when the handle and dock sit on the left screen edge. */
+    static boolean sidebarLeft(Context c) {
+        return c.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                .getBoolean("left", false);
+    }
+
+    static void setSidebarLeft(Context c, boolean left) {
+        c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putBoolean("left", left).apply();
     }
 
     /** Default countdown lengths for the four multi-timer slots, in minutes. */

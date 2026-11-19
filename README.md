@@ -13,7 +13,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 - **Tác giả:** Nguyễn Nhật Minh Hoàng
 - **Nền tảng:** Android 7.0 (API 24) trở lên
-- **Phiên bản:** 1.0.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
+- **Phiên bản:** 1.0.1 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
 
 ---
 
@@ -129,6 +129,14 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Khung chọn vùng full màn hình**: ẩn thanh thông báo và thanh điều hướng
   trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
   xác với khung đang nhìn.
+
+### Bản 1.0.1
+
+- **Đổi bên thanh bên** (`#side`): thêm nút *Đổi bên thanh bên* vào menu. Chạm
+  một lần là tay nắm và cả dock chuyển sang mép trái, chạm lần nữa để về mép
+  phải. Mũi tên, hướng trượt, hướng thu gọn và vị trí dọc đều được lật theo,
+  toạ độ dọc đang đặt được giữ nguyên. Lựa chọn được lưu lại sau khi khởi động
+  lại dịch vụ.
 
 ### Bản 1.0.0
 

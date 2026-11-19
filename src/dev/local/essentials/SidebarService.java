@@ -259,6 +259,7 @@ public class SidebarService extends Service {
         Side.ensureToolkit8(this);
         Side.ensureToolkit9(this);
         Side.ensureToolkit92(this);
+        Side.ensureToolkit101(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastConfigW = getResources().getDisplayMetrics().widthPixels;
@@ -498,19 +499,23 @@ public class SidebarService extends Service {
         handleBg.setStroke(strokePx, strokeColor);
         handleChip.setBackground(handleBg);
         chipWidthPx = dp(HANDLE_CHIP_DP);
+        final boolean left = Side.sidebarLeft(this);
         FrameLayout.LayoutParams chipLp = new FrameLayout.LayoutParams(
-                chipWidthPx, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
+                chipWidthPx, ViewGroup.LayoutParams.MATCH_PARENT,
+                left ? Gravity.START : Gravity.END);
         box.addView(handleChip, chipLp);
 
         // the chevron lives beside the chip, so it stays visible when the chip tucks
         chevron = new TextView(this);
-        chevron.setText("\u2039");
+        chevron.setText(left ? "\u203A" : "\u2039");
         chevron.setTextColor(Ui.ACCENT);
         chevron.setTextSize(18);
         chevron.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(
-                dp(HANDLE_CHEVRON_DP), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END);
-        clp.rightMargin = dp(HANDLE_CHEVRON_MARGIN_DP);
+                dp(HANDLE_CHEVRON_DP), ViewGroup.LayoutParams.MATCH_PARENT,
+                left ? Gravity.START : Gravity.END);
+        if (left) clp.leftMargin = dp(HANDLE_CHEVRON_MARGIN_DP);
+        else clp.rightMargin = dp(HANDLE_CHEVRON_MARGIN_DP);
         box.addView(chevron, clp);
 
         box.setAlpha(HANDLE_A_NORMAL);
@@ -520,7 +525,8 @@ public class SidebarService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | (keepAwake ? WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON : 0),
                 PixelFormat.TRANSLUCENT);
-        handleParams.gravity = Gravity.TOP | Gravity.END;
+        handleParams.gravity = Gravity.TOP
+                | (left ? Gravity.START : Gravity.END);
         // clear of the system back-gesture edge
         handleParams.x = dp(EDGE_INSET_DP);
         handleParams.y = startY();
@@ -633,11 +639,15 @@ public class SidebarService extends Service {
         final int fromBar = chipWidthPx;
         final int toBar = toTucked
                 ? tuckBarPx() + overhang : dp(HANDLE_CHIP_DP);
-        final int fromChipMargin = ((FrameLayout.LayoutParams) handleChip.getLayoutParams())
-                .rightMargin;
+        final boolean left = Side.sidebarLeft(this);
+        final FrameLayout.LayoutParams fromChipLp =
+                (FrameLayout.LayoutParams) handleChip.getLayoutParams();
+        final int fromChipMargin = left ? fromChipLp.leftMargin : fromChipLp.rightMargin;
         final int toChipMargin = toTucked ? -overhang : 0;
-        final int fromMargin = chevron == null ? 0
-                : ((FrameLayout.LayoutParams) chevron.getLayoutParams()).rightMargin;
+        final FrameLayout.LayoutParams fromChevronLp = chevron == null ? null
+                : (FrameLayout.LayoutParams) chevron.getLayoutParams();
+        final int fromMargin = fromChevronLp == null ? 0
+                : (left ? fromChevronLp.leftMargin : fromChevronLp.rightMargin);
         // tucked: the arrow centres inside the visible part of the bar
         final int toMargin = toTucked
                 ? Math.max(0, (tuckBarPx() - dp(HANDLE_CHEVRON_DP)) / 2)
@@ -659,10 +669,12 @@ public class SidebarService extends Service {
                 if (handleChip != null) {
                     FrameLayout.LayoutParams lp =
                             (FrameLayout.LayoutParams) handleChip.getLayoutParams();
-                    if (barW != chipWidthPx || lp.rightMargin != chipMargin) {
+                    int currentMargin = left ? lp.leftMargin : lp.rightMargin;
+                    if (barW != chipWidthPx || currentMargin != chipMargin) {
                         chipWidthPx = barW;
                         lp.width = barW;
-                        lp.rightMargin = chipMargin;
+                        if (left) lp.leftMargin = chipMargin;
+                        else lp.rightMargin = chipMargin;
                         handleChip.setLayoutParams(lp);
                     }
                 }
@@ -671,8 +683,10 @@ public class SidebarService extends Service {
                     int margin = Math.round(fromMargin + (toMargin - fromMargin) * t);
                     FrameLayout.LayoutParams clp =
                             (FrameLayout.LayoutParams) chevron.getLayoutParams();
-                    if (clp.rightMargin != margin) {
-                        clp.rightMargin = margin;
+                    int current = left ? clp.leftMargin : clp.rightMargin;
+                    if (current != margin) {
+                        if (left) clp.leftMargin = margin;
+                        else clp.rightMargin = margin;
                         chevron.setLayoutParams(clp);
                     }
                 }
@@ -723,6 +737,23 @@ public class SidebarService extends Service {
 
     // ------------------------------------------------------------ panel plumbing
 
+    /** Flips the handle and dock between the right and left screen edges. */
+    private void switchSidebarSide() {
+        int pos = handleParams != null ? handleParams.y : Side.pos(this);
+        boolean left = !Side.sidebarLeft(this);
+        Side.setSidebarLeft(this, left);
+        resetSidebar();
+        if (handleParams != null && pos >= 0) {
+            handleParams.y = clamp(pos, 0, maxY());
+            try {
+                wm.updateViewLayout(handle, handleParams);
+            } catch (Exception ignored) {
+            }
+            Side.setPos(this, handleParams.y);
+        }
+        toast(left ? "Thanh bên chuyển sang trái" : "Thanh bên chuyển sang phải");
+    }
+
     private void togglePanel() {
         if (panelOpen) closePanel();
         else openMenu();
@@ -737,7 +768,8 @@ public class SidebarService extends Service {
         if (panelOpen && panelKind == KIND_DOCK) return;
         hideNow();
         panelKind = KIND_DOCK;
-        panelOnRight = true;
+        final boolean left = Side.sidebarLeft(this);
+        panelOnRight = !left;
         handler.removeCallbacks(tuckIdle);
 
         FrameLayout root = new FrameLayout(this) {
@@ -778,13 +810,6 @@ public class SidebarService extends Service {
         scroll.addView(dockTabs, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         dockScroll = scroll;
-        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(
-                dockTabWidth(), ViewGroup.LayoutParams.WRAP_CONTENT);
-        sp.gravity = Gravity.TOP | Gravity.START;
-        sp.leftMargin = dp(EDGE_INSET_DP);
-        sp.topMargin = dp(24);
-        root.addView(dockScroll, sp);
-        dockScroll.setVisibility(tabViews.isEmpty() ? View.GONE : View.VISIBLE);
 
         LinearLayout menu = buildMenu();
         dockMenu = menu;
@@ -797,17 +822,30 @@ public class SidebarService extends Service {
         int menuW = menu.getMeasuredWidth();
         int menuH = menu.getMeasuredHeight();
 
+        // Right mode: menu on the right, tabs fill the space to its left.
+        // Left mode mirrors it: menu on the left, tabs to its right.
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(
+                dockTabWidth(), ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.gravity = Gravity.TOP | Gravity.START;
+        sp.leftMargin = left
+                ? dp(PANEL_INSET_DP) + menuW + dp(10)
+                : dp(EDGE_INSET_DP);
+        sp.topMargin = dp(24);
+        root.addView(dockScroll, sp);
+        dockScroll.setVisibility(tabViews.isEmpty() ? View.GONE : View.VISIBLE);
+
         final FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
-        mp.gravity = Gravity.TOP | Gravity.END;
-        mp.rightMargin = dp(PANEL_INSET_DP);
+        mp.gravity = Gravity.TOP | (left ? Gravity.START : Gravity.END);
+        if (left) mp.leftMargin = dp(PANEL_INSET_DP);
+        else mp.rightMargin = dp(PANEL_INSET_DP);
         int center = handleParams.y + handleParams.height / 2;
         mp.topMargin = clamp(center - menuH / 2, dp(8),
                 Math.max(dp(8), screenH() - menuH - dp(8)));
-        // Off-screen to the right before the first frame, so the slide-in
-        // never flashes at its final position.
-        menu.setTranslationX(dp(340));
+        // Off-screen on the menu's own edge before the first frame, so the
+        // slide-in never flashes at its final position.
+        menu.setTranslationX(dp(left ? -340 : 340));
         root.addView(menu, mp);
 
         // Size the tab column from the menu's measured width up front, so tabs
@@ -844,7 +882,7 @@ public class SidebarService extends Service {
 
                 for (View tab : tabViews.values()) {
                     tab.setAlpha(0f);
-                    tab.setTranslationX(dp(-22));
+                    tab.setTranslationX(dp(left ? 22 : -22));
                     tab.animate().alpha(1f).translationX(0f)
                             .setDuration(180)
                             .setInterpolator(new DecelerateInterpolator())
@@ -1013,7 +1051,8 @@ public class SidebarService extends Service {
         panelKind = KIND_NONE;
 
         if (dockScroll != null) {
-            dockScroll.animate().alpha(0f).translationX(-dp(22))
+            dockScroll.animate().alpha(0f)
+                    .translationX(panelOnRight ? -dp(22) : dp(22))
                     .setDuration(TAB_ANIM_MS)
                     .setInterpolator(new AccelerateInterpolator())
                     .start();
@@ -1022,7 +1061,7 @@ public class SidebarService extends Service {
             final int travel = dockMenu.getWidth() > 0
                     ? dockMenu.getWidth() + dp(60) : dp(340);
             dockMenu.animate()
-                    .translationX(travel)
+                    .translationX(panelOnRight ? travel : -travel)
                     .setDuration(ANIM_MS)
                     .setInterpolator(new PathInterpolator(0.4f, 0f, 0.6f, 1f))
                     .withEndAction(new Runnable() {
@@ -1760,6 +1799,9 @@ public class SidebarService extends Service {
             case "#refimage":
                 iconRes = R.drawable.ic_refimage;
                 break;
+            case "#side":
+                iconRes = R.drawable.ic_side;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -1953,6 +1995,10 @@ public class SidebarService extends Service {
         }
         if ("#refimage".equals(id)) {
             toggleTab(TAB_REFIMAGE);
+            return;
+        }
+        if ("#side".equals(id)) {
+            switchSidebarSide();
             return;
         }
         if ("#ruler".equals(id)) {
