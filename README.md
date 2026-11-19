@@ -13,6 +13,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 - **Tác giả:** Nguyễn Nhật Minh Hoàng
 - **Nền tảng:** Android 7.0 (API 24) trở lên
+- **Phiên bản:** 1.0.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
 
 ---
 
@@ -129,7 +130,9 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
   xác với khung đang nhìn.
 
-### Bản 9.2
+### Bản 1.0.0
+
+> Đây là bản 10.0 theo cách đánh số cũ; từ nay Essentials dùng lại từ **1.0.0**.
 
 - **Tự động chạm** (`#autoclick`): chọn một điểm trên màn hình rồi bấm bắt đầu.
   Điểm đó được chạm lặp lại theo chu kỳ **50–3000 ms**, kèm độ trễ ngẫu nhiên
