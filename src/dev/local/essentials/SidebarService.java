@@ -1117,6 +1117,16 @@ public class SidebarService extends Service {
         tabViews.clear();
         menuButtons.clear();
         buildingTab = null;
+        Peeker.listener = null;
+        peekerList = null;
+        peekerStatus = null;
+        stickyStatusView = null;
+        stickyPinButton = null;
+        reminderStatusView = null;
+        reminderStartButton = null;
+        reminderInput = null;
+        reminderMinValue = null;
+        reminderSecValue = null;
         setHandleOpen(false);
         scheduleTuck();
     }
