@@ -9,6 +9,9 @@ import android.os.Build;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 
+import java.util.List;
+import java.util.Locale;
+
 /**
  * Accessibility-only screenshot engine. Android lets an enabled accessibility
  * service grab the screen without the MediaProjection consent dialog, which is
@@ -44,7 +47,41 @@ public class ShotService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // nothing: the service only exists to call takeScreenshot()
+        // Screenshots do not need events; this feeds the notification peeker.
+        if (event == null) return;
+        int type = event.getEventType();
+        if (type != AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
+                && type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
+
+        CharSequence pkgCs = event.getPackageName();
+        String pkg = pkgCs == null ? "" : pkgCs.toString();
+        if (pkg.equals(getPackageName())) return;
+
+        CharSequence clsCs = event.getClassName();
+        String cls = clsCs == null ? "" : clsCs.toString().toLowerCase(Locale.ROOT);
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                && !cls.contains("toast")) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        List<CharSequence> texts = event.getText();
+        if (texts != null) {
+            for (CharSequence cs : texts) {
+                if (cs == null) continue;
+                String t = cs.toString().trim();
+                if (t.isEmpty() || sb.indexOf(t) >= 0) continue;
+                if (sb.length() > 0) sb.append(" \u00b7 ");
+                sb.append(t);
+            }
+        }
+        if (sb.length() == 0 && event.getContentDescription() != null) {
+            sb.append(event.getContentDescription().toString().trim());
+        }
+        if (sb.length() == 0) return;
+
+        String app = pkg.isEmpty() ? "Hệ thống" : Apps.labelOf(this, pkg);
+        Peeker.add(System.currentTimeMillis(), app, sb.toString());
     }
 
     @Override

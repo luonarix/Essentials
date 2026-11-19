@@ -22,7 +22,8 @@ final class Side {
             "#color", "#lock", "#back", "#home", "#recents",
             "#ruler", "#tally", "#clip", "#black", "#qr",
             "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
-            "#autoclick", "#secure", "#battery", "#refimage", "#side", "#menu"
+            "#autoclick", "#secure", "#battery", "#refimage", "#side",
+            "#peeker", "#data", "#hotspot", "#sticky", "#toasttimer", "#menu"
     };
 
     static final String[] LABELS = {
@@ -35,7 +36,9 @@ final class Side {
             "Màn hình đen", "Mã QR offline", "Tâm ngắm ảo", "Đa hẹn giờ",
             "Khoá độ sáng", "Khoá xoay màn hình", "Không làm phiền",
             "Tự động chạm", "Mật khẩu & mã hoá", "Cảnh báo pin",
-            "Ảnh tham chiếu nổi", "Đổi bên thanh bên", "Menu đầy đủ"
+            "Ảnh tham chiếu nổi", "Đổi bên thanh bên", "Đọc thông báo nhanh",
+            "Dữ liệu di động", "Điểm phát sóng", "Bảng nháp ghim",
+            "Nhắc nhanh", "Menu đầy đủ"
     };
 
     /** Tools added in v7.0, appended once to lists saved by older versions. */
@@ -64,6 +67,11 @@ final class Side {
             "#side"
     };
 
+    /** Tools added in v1.1.0, appended once to lists saved by older versions. */
+    static final String[] V110_ITEMS = {
+            "#peeker", "#data", "#hotspot", "#sticky", "#toasttimer"
+    };
+
     private Side() {}
 
     static List<String> items(Context c) {
@@ -76,7 +84,8 @@ final class Side {
                     "#color", "#lock", "#back", "#home", "#recents",
                     "#ruler", "#tally", "#clip", "#black", "#qr",
                     "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
-                    "#autoclick", "#secure", "#battery", "#refimage", "#side"));
+                    "#autoclick", "#secure", "#battery", "#refimage", "#side",
+                    "#peeker", "#data", "#hotspot", "#sticky", "#toasttimer"));
         }
         List<String> out = new ArrayList<>();
         for (String s : raw.split(",")) {
@@ -238,6 +247,25 @@ final class Side {
         }
         setItems(c, ids);
         sp.edit().putBoolean("tools_v101", true).apply();
+    }
+
+    /** Adds the v1.1.0 tools once, keeping "#menu" last when present. */
+    static void ensureToolkit110(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        if (sp.getBoolean("tools_v110", false)) return;
+        List<String> ids = items(c);
+        int menu = ids.indexOf("#menu");
+        for (String id : V110_ITEMS) {
+            if (ids.contains(id)) continue;
+            if (menu >= 0) {
+                ids.add(menu, id);
+                menu++;
+            } else {
+                ids.add(id);
+            }
+        }
+        setItems(c, ids);
+        sp.edit().putBoolean("tools_v110", true).apply();
     }
 
     /** True when the handle and dock sit on the left screen edge. */

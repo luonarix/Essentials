@@ -192,6 +192,9 @@ public class SidebarService extends Service {
     private static final String TAB_SECURE = "secure";
     private static final String TAB_BATTERY = "battery";
     private static final String TAB_REFIMAGE = "refimage";
+    private static final String TAB_PEEKER = "peeker";
+    private static final String TAB_STICKY = "sticky";
+    private static final String TAB_REMINDER = "reminder";
 
     /** Tab key -> the menu button that toggles it. */
     private static String tabButtonId(String key) {
@@ -208,6 +211,9 @@ public class SidebarService extends Service {
         if (TAB_SECURE.equals(key)) return "#secure";
         if (TAB_BATTERY.equals(key)) return "#battery";
         if (TAB_REFIMAGE.equals(key)) return "#refimage";
+        if (TAB_PEEKER.equals(key)) return "#peeker";
+        if (TAB_STICKY.equals(key)) return "#sticky";
+        if (TAB_REMINDER.equals(key)) return "#toasttimer";
         return null;
     }
 
@@ -260,6 +266,7 @@ public class SidebarService extends Service {
         Side.ensureToolkit9(this);
         Side.ensureToolkit92(this);
         Side.ensureToolkit101(this);
+        Side.ensureToolkit110(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastConfigW = getResources().getDisplayMetrics().widthPixels;
@@ -275,6 +282,7 @@ public class SidebarService extends Service {
             if (Crosshair.enabled(this)) addCrosshair(false);
             registerBatteryMonitor();
             if (refPrefs().getBoolean("on", false)) showReference(false);
+            if (stickyPrefs().getBoolean("on", false)) showSticky(false);
         }
     }
 
@@ -321,6 +329,7 @@ public class SidebarService extends Service {
         removeAutoPicker(autoPickRoot);
         removeAutoDot();
         removeReferenceWindow();
+        removeStickyWindow();
         removeTouchLock(false);
         closeColorPicker(false);
         stopRuler(false);
@@ -350,17 +359,23 @@ public class SidebarService extends Service {
         if (Side.hudOn(this)) addHud(false);
         if (Crosshair.enabled(this)) addCrosshair(false);
         restartTimerTick();
+        restartReminderTick();
         if (autoRunning) {
             showAutoDot();
             handler.removeCallbacks(autoClickTick);
             handler.postDelayed(autoClickTick, 160);
         }
         if (refPrefs().getBoolean("on", false)) showReference(false);
+        if (stickyPrefs().getBoolean("on", false)) showSticky(false);
     }
 
     @Override
     public void onDestroy() {
         stopAuto(false);
+        saveStickyText();
+        removeStickyWindow();
+        handler.removeCallbacks(reminderTick);
+        Peeker.listener = null;
         unregisterBatteryMonitor();
         removeAutoPicker(autoPickRoot);
         removeReferenceWindow();
@@ -431,6 +446,7 @@ public class SidebarService extends Service {
         // wipe() above also cleared the timer heartbeat; countdowns must keep
         // running while a capture, ruler or black-screen overlay is open.
         restartTimerTick();
+        restartReminderTick();
     }
 
     /** Puts the handle back and re-opens the dock after a full-screen capture. */
@@ -451,6 +467,7 @@ public class SidebarService extends Service {
         applyKeepAwake(keepAwake);
         scheduleTuck();
         restartTimerTick();
+        restartReminderTick();
     }
 
     // ------------------------------------------------------------ notification
@@ -1126,6 +1143,9 @@ public class SidebarService extends Service {
         else if (TAB_SECURE.equals(key)) openSecure();
         else if (TAB_BATTERY.equals(key)) openBattery();
         else if (TAB_REFIMAGE.equals(key)) openRefImage();
+        else if (TAB_PEEKER.equals(key)) openPeeker();
+        else if (TAB_STICKY.equals(key)) openSticky();
+        else if (TAB_REMINDER.equals(key)) openReminder();
         else if (TAB_NOTEDETAIL.equals(key)) openNotes();
     }
 
@@ -1239,6 +1259,22 @@ public class SidebarService extends Service {
             bumpAutoHide();
         }
         paintTabButton(key, false);
+        if (TAB_PEEKER.equals(key)) {
+            Peeker.listener = null;
+            peekerList = null;
+            peekerStatus = null;
+        }
+        if (TAB_STICKY.equals(key)) {
+            stickyStatusView = null;
+            stickyPinButton = null;
+        }
+        if (TAB_REMINDER.equals(key)) {
+            reminderStatusView = null;
+            reminderStartButton = null;
+            reminderInput = null;
+            reminderMinValue = null;
+            reminderSecValue = null;
+        }
         if (TAB_EDITOR.equals(key)) rebuildDockMenu();
         setDockFocusable(needsKeyboard());
     }
@@ -1802,6 +1838,21 @@ public class SidebarService extends Service {
             case "#side":
                 iconRes = R.drawable.ic_side;
                 break;
+            case "#peeker":
+                iconRes = R.drawable.ic_peeker;
+                break;
+            case "#data":
+                iconRes = R.drawable.ic_data;
+                break;
+            case "#hotspot":
+                iconRes = R.drawable.ic_hotspot;
+                break;
+            case "#sticky":
+                iconRes = R.drawable.ic_sticky;
+                break;
+            case "#toasttimer":
+                iconRes = R.drawable.ic_toasttimer;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -1832,7 +1883,7 @@ public class SidebarService extends Service {
         return "#hud".equals(id) || "#crosshair".equals(id)
                 || "#brightness".equals(id) || "#rotate".equals(id)
                 || "#dnd".equals(id) || "#autoclick".equals(id)
-                || "#refimage".equals(id);
+                || "#refimage".equals(id) || "#sticky".equals(id);
     }
 
     private boolean toggleOn(String id) {
@@ -1843,6 +1894,7 @@ public class SidebarService extends Service {
         if ("#dnd".equals(id)) return dndOn();
         if ("#autoclick".equals(id)) return autoRunning;
         if ("#refimage".equals(id)) return refPinned;
+        if ("#sticky".equals(id)) return stickyOn;
         return false;
     }
 
@@ -1860,14 +1912,14 @@ public class SidebarService extends Service {
 
     private int toggleColor(String id) {
         if ("#crosshair".equals(id) || "#autoclick".equals(id)
-                || "#refimage".equals(id)) return TOGGLE_CYAN;
+                || "#refimage".equals(id) || "#sticky".equals(id)) return TOGGLE_CYAN;
         if ("#dnd".equals(id)) return TOGGLE_AMBER;
         return TOGGLE_GREEN;
     }
 
     private int toggleBoxColor(String id) {
         if ("#crosshair".equals(id) || "#autoclick".equals(id)
-                || "#refimage".equals(id)) return TOGGLE_CYAN_BOX;
+                || "#refimage".equals(id) || "#sticky".equals(id)) return TOGGLE_CYAN_BOX;
         if ("#dnd".equals(id)) return TOGGLE_AMBER_BOX;
         return TOGGLE_GREEN_BOX;
     }
@@ -1999,6 +2051,30 @@ public class SidebarService extends Service {
         }
         if ("#side".equals(id)) {
             switchSidebarSide();
+            return;
+        }
+        if ("#peeker".equals(id)) {
+            toggleTab(TAB_PEEKER);
+            return;
+        }
+        if ("#sticky".equals(id)) {
+            toggleTab(TAB_STICKY);
+            return;
+        }
+        if ("#toasttimer".equals(id)) {
+            toggleTab(TAB_REMINDER);
+            return;
+        }
+        if ("#data".equals(id)) {
+            closePanel(false);
+            openSystemSettings(new Intent(Settings.ACTION_DATA_ROAMING_SETTINGS),
+                    Settings.ACTION_WIRELESS_SETTINGS);
+            return;
+        }
+        if ("#hotspot".equals(id)) {
+            closePanel(false);
+            openSystemSettings(new Intent("android.settings.TETHER_SETTINGS"),
+                    Settings.ACTION_WIRELESS_SETTINGS);
             return;
         }
         if ("#ruler".equals(id)) {
@@ -5633,6 +5709,116 @@ public class SidebarService extends Service {
         ar2.topMargin = dp(6);
         card.addView(actionRow2, ar2);
 
+        View baseDivider = new View(this);
+        baseDivider.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams bdl = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        bdl.topMargin = dp(14);
+        bdl.bottomMargin = dp(2);
+        card.addView(baseDivider, bdl);
+
+        card.addView(label("HỆ CƠ SỐ & ASCII"));
+        LinearLayout baseRow1 = Ui.row(this);
+        TextView asBin = pill("Nhị phân", false);
+        asBin.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(baseReport(input.getText().toString(), 2));
+            }
+        });
+        TextView asHex = pill("Hex", false);
+        asHex.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(baseReport(input.getText().toString(), 16));
+            }
+        });
+        TextView asDec = pill("Thập phân", false);
+        asDec.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(baseReport(input.getText().toString(), 10));
+            }
+        });
+        baseRow1.addView(asBin, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams b1 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        b1.leftMargin = dp(6);
+        baseRow1.addView(asHex, b1);
+        LinearLayout.LayoutParams b1b = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        b1b.leftMargin = dp(6);
+        baseRow1.addView(asDec, b1b);
+        LinearLayout.LayoutParams br1 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        br1.topMargin = dp(6);
+        card.addView(baseRow1, br1);
+
+        LinearLayout baseRow2 = Ui.row(this);
+        TextView a2h = pill("ASCII → Hex", false);
+        a2h.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(asciiToHex(input.getText().toString()));
+            }
+        });
+        TextView h2a = pill("Hex → ASCII", false);
+        h2a.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(hexToAscii(input.getText().toString()));
+            }
+        });
+        baseRow2.addView(a2h, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams b2 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        b2.leftMargin = dp(6);
+        baseRow2.addView(h2a, b2);
+        LinearLayout.LayoutParams br2 = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        br2.topMargin = dp(6);
+        card.addView(baseRow2, br2);
+
+        card.addView(label("CAESAR"));
+        final int[] caesarShift = {3};
+        LinearLayout shiftRow = Ui.row(this);
+        TextView shiftMinus = pill("−", false);
+        shiftMinus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        final TextView shiftValue = Ui.text(this, "dịch " + caesarShift[0], 12, Ui.TEXT, true);
+        shiftValue.setGravity(Gravity.CENTER);
+        shiftMinus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                caesarShift[0] = caesarShift[0] <= 1 ? 25 : caesarShift[0] - 1;
+                shiftValue.setText("dịch " + caesarShift[0]);
+            }
+        });
+        TextView shiftPlus = pill("+", false);
+        shiftPlus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        shiftPlus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                caesarShift[0] = caesarShift[0] >= 25 ? 1 : caesarShift[0] + 1;
+                shiftValue.setText("dịch " + caesarShift[0]);
+            }
+        });
+        shiftRow.addView(shiftMinus);
+        shiftRow.addView(shiftValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        shiftRow.addView(shiftPlus);
+        card.addView(shiftRow);
+
+        LinearLayout caesarRow = Ui.row(this);
+        TextView encodeCaesar = pill("Mã hoá", false);
+        encodeCaesar.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(caesar(input.getText().toString(), caesarShift[0]));
+            }
+        });
+        TextView decodeCaesar = pill("Giải mã", false);
+        decodeCaesar.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                output.setText(caesar(input.getText().toString(), -caesarShift[0]));
+            }
+        });
+        caesarRow.addView(encodeCaesar, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams cr = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        cr.leftMargin = dp(6);
+        caesarRow.addView(decodeCaesar, cr);
+        LinearLayout.LayoutParams crp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        crp.topMargin = dp(6);
+        card.addView(caesarRow, crp);
+
         LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         op.topMargin = dp(8);
@@ -6363,6 +6549,792 @@ public class SidebarService extends Service {
             return Math.max(1f, (float) Math.hypot(dx, dy));
         }
     };
+
+
+    // ------------------------------------------------------------ notification peeker
+
+    private TextView peekerStatus;
+    private LinearLayout peekerList;
+
+    private final Runnable peekerRefresh = new Runnable() {
+        public void run() {
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                handler.post(this);
+                return;
+            }
+            renderPeeker();
+        }
+    };
+
+    private void openPeeker() {
+        if (tabViews.containsKey(TAB_PEEKER)) return;
+        buildingTab = TAB_PEEKER;
+        LinearLayout card = buildPeekerPanel();
+        buildingTab = null;
+        addTab(TAB_PEEKER, card);
+        Peeker.listener = peekerRefresh;
+        renderPeeker();
+    }
+
+    private LinearLayout buildPeekerPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Thông báo nhanh", false, null));
+
+        TextView hint = Ui.text(this,
+                "Giữ lại những dòng thông báo, toast hay cảnh báo chỉ thoáng qua rồi biến mất.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        peekerStatus = Ui.text(this, "", 12, Ui.ACCENT, true);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.bottomMargin = dp(8);
+        card.addView(peekerStatus, sp);
+
+        ScrollView sv = new ScrollView(this);
+        peekerList = Ui.col(this);
+        sv.addView(peekerList, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams svp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(300));
+        card.addView(sv, svp);
+
+        LinearLayout actions = Ui.row(this);
+        TextView copyAll = pill("Chép tất cả", false);
+        copyAll.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                List<Peeker.Entry> entries = Peeker.snapshot();
+                if (entries.isEmpty()) {
+                    toast("Chưa có thông báo nào");
+                    return;
+                }
+                StringBuilder sb = new StringBuilder();
+                for (int i = entries.size() - 1; i >= 0; i--) {
+                    Peeker.Entry e = entries.get(i);
+                    sb.append('[').append(timeText(e.time)).append("] ")
+                            .append(e.app).append(": ").append(e.text).append('\n');
+                }
+                copyToClipboard(sb.toString().trim());
+            }
+        });
+        TextView clear = pill("Xoá", false);
+        clear.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Peeker.clear();
+                renderPeeker();
+                toast("Đã xoá lịch sử");
+            }
+        });
+        actions.addView(copyAll, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams clp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        clp.leftMargin = dp(6);
+        actions.addView(clear, clp);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.topMargin = dp(8);
+        card.addView(actions, ap);
+
+        TextView note = Ui.text(this,
+                "Cần bật Trợ năng cho Essentials để đọc được thông báo. Lịch sử chỉ nằm trong bộ nhớ.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+        return card;
+    }
+
+    private String timeText(long millis) {
+        return new SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                .format(new java.util.Date(millis));
+    }
+
+    private void renderPeeker() {
+        if (peekerList == null) return;
+        List<Peeker.Entry> entries = Peeker.snapshot();
+        if (peekerStatus != null) {
+            if (!ShotService.ready()) {
+                peekerStatus.setText("Chưa bật Trợ năng cho Essentials");
+            } else {
+                peekerStatus.setText("Đang ghi · " + entries.size() + " mục");
+            }
+        }
+        peekerList.removeAllViews();
+        if (entries.isEmpty()) {
+            TextView empty = Ui.text(this, "Chưa bắt được thông báo nào. "
+                    + "Thử mở một ứng dụng có thông báo nổi.", 12, Ui.MUTED, false);
+            empty.setPadding(dp(2), dp(10), dp(2), dp(10));
+            peekerList.addView(empty);
+            return;
+        }
+        for (final Peeker.Entry e : entries) {
+            LinearLayout row = Ui.col(this);
+            row.setBackground(Ui.framed(ITEM_BG_SOFT, this, 12));
+            row.setPadding(dp(10), dp(8), dp(10), dp(9));
+            TextView meta = Ui.text(this, timeText(e.time) + " · " + e.app,
+                    10, Ui.MUTED, true);
+            row.addView(meta);
+            TextView text = Ui.text(this, e.text, 12, Ui.TEXT, false);
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            tp.topMargin = dp(3);
+            row.addView(text, tp);
+            row.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    copyToClipboard(e.text);
+                }
+            });
+            Ui.press(row, 0.98f);
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rp.bottomMargin = dp(6);
+            peekerList.addView(row, rp);
+        }
+    }
+
+    // ------------------------------------------------------------ settings shortcuts
+
+    private void openSystemSettings(Intent intent, String fallback) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+            return;
+        } catch (Exception ignored) {
+        }
+        try {
+            Intent f = new Intent(fallback);
+            f.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(f);
+        } catch (Exception e) {
+            toast("Máy không mở được trang cài đặt này");
+        }
+    }
+
+    // ------------------------------------------------------------ sticky scratchpad
+
+    private View stickyView;
+    private WindowManager.LayoutParams stickyParams;
+    private EditText stickyEdit;
+    private boolean stickyOn;
+    private int stickyAlpha = 80;
+    private TextView stickyStatusView;
+    private TextView stickyPinButton;
+
+    private SharedPreferences stickyPrefs() {
+        return getSharedPreferences("sticky", MODE_PRIVATE);
+    }
+
+    private void openSticky() {
+        if (tabViews.containsKey(TAB_STICKY)) return;
+        SharedPreferences sp = stickyPrefs();
+        stickyAlpha = clamp(sp.getInt("alpha", stickyAlpha), 20, 100);
+        buildingTab = TAB_STICKY;
+        LinearLayout card = buildStickyPanel();
+        buildingTab = null;
+        addTab(TAB_STICKY, card);
+        paintStickyState();
+    }
+
+    private LinearLayout buildStickyPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Bảng nháp ghim", false, null));
+
+        TextView hint = Ui.text(this,
+                "Tờ giấy nháp nhỏ đè lên màn hình để chép token, port hay tọa độ khi làm việc giữa hai cửa sổ.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        stickyStatusView = Ui.text(this, "", 12, Ui.ACCENT, true);
+        LinearLayout.LayoutParams ssp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ssp.bottomMargin = dp(8);
+        card.addView(stickyStatusView, ssp);
+
+        stickyPinButton = pill("", true);
+        stickyPinButton.setPadding(dp(10), dp(11), dp(10), dp(11));
+        stickyPinButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (stickyOn) hideSticky(true);
+                else showSticky(true);
+                paintStickyState();
+            }
+        });
+        card.addView(stickyPinButton);
+
+        card.addView(label("ĐỘ TRONG SUỐT"));
+        final TextView alphaValue = Ui.text(this, stickyAlpha + "%", 12, Ui.TEXT, true);
+        alphaValue.setGravity(Gravity.CENTER);
+        LinearLayout alphaRow = Ui.row(this);
+        TextView aminus = pill("\u2212", false);
+        aminus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        aminus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stickyAlpha = clamp(stickyAlpha - 10, 20, 100);
+                stickyPrefs().edit().putInt("alpha", stickyAlpha).apply();
+                alphaValue.setText(stickyAlpha + "%");
+                if (stickyView != null) stickyView.setAlpha(stickyAlpha / 100f);
+            }
+        });
+        TextView aplus = pill("+", false);
+        aplus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        aplus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stickyAlpha = clamp(stickyAlpha + 10, 20, 100);
+                stickyPrefs().edit().putInt("alpha", stickyAlpha).apply();
+                alphaValue.setText(stickyAlpha + "%");
+                if (stickyView != null) stickyView.setAlpha(stickyAlpha / 100f);
+            }
+        });
+        alphaRow.addView(aminus);
+        alphaRow.addView(alphaValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        alphaRow.addView(aplus);
+        card.addView(alphaRow);
+
+        TextView clear = pill("Xoá nội dung nháp", false);
+        clear.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stickyPrefs().edit().putString("text", "").apply();
+                if (stickyEdit != null) stickyEdit.setText("");
+                toast("Đã xoá bảng nháp");
+            }
+        });
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(6);
+        card.addView(clear, clp);
+
+        TextView note = Ui.text(this,
+                "Kéo thanh NHÁP để dời bảng. Bảng tự lưu nội dung và vị trí, mở lại dịch vụ vẫn còn.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(12);
+        card.addView(note, np);
+
+        paintStickyState();
+        return card;
+    }
+
+    private void paintStickyState() {
+        if (stickyStatusView != null) {
+            boolean hasText = !stickyPrefs().getString("text", "").isEmpty();
+            stickyStatusView.setText(stickyOn ? "Đang ghim trên màn hình"
+                    : hasText ? "Có nội dung · chưa ghim" : "Bảng nháp trống");
+        }
+        if (stickyPinButton != null) {
+            stickyPinButton.setText(stickyOn ? "Bỏ ghim bảng nháp" : "Ghim bảng nháp");
+            setPillState(stickyPinButton, !stickyOn);
+        }
+    }
+
+    private void showSticky(boolean announce) {
+        if (stickyView != null) {
+            paintStickyState();
+            return;
+        }
+        SharedPreferences sp = stickyPrefs();
+        stickyAlpha = clamp(sp.getInt("alpha", stickyAlpha), 20, 100);
+
+        LinearLayout box = Ui.col(this);
+        box.setBackground(Ui.framed(0xF0171C24, this, 14));
+        box.setPadding(dp(10), dp(8), dp(10), dp(8));
+        box.setAlpha(stickyAlpha / 100f);
+
+        LinearLayout headerRow = Ui.row(this);
+        TextView tag = Ui.text(this, "NHÁP", 10, Ui.ACCENT, true);
+        tag.setLetterSpacing(0.14f);
+        headerRow.addView(tag, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView close = Ui.text(this, "\u00d7", 16, Ui.MUTED, false);
+        close.setPadding(dp(8), 0, dp(4), 0);
+        close.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                saveStickyText();
+                hideSticky(false);
+            }
+        });
+        headerRow.addView(close);
+        box.addView(headerRow);
+
+        final EditText edit = new EditText(this);
+        edit.setBackground(null);
+        edit.setTextColor(Ui.TEXT);
+        edit.setHintTextColor(0xFF6A7382);
+        edit.setHint("Token, port, tọa độ...");
+        edit.setTextSize(12);
+        edit.setTypeface(android.graphics.Typeface.MONOSPACE);
+        edit.setGravity(Gravity.TOP | Gravity.START);
+        edit.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        edit.setPadding(dp(2), dp(6), dp(2), dp(2));
+        edit.setText(sp.getString("text", ""));
+        edit.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void afterTextChanged(android.text.Editable e) {
+                stickyPrefs().edit().putString("text", e.toString()).apply();
+            }
+        });
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        ep.topMargin = dp(2);
+        box.addView(edit, ep);
+        stickyEdit = edit;
+
+        int w = dp(252);
+        int h = dp(150);
+        int x = clamp(sp.getInt("x", dp(14)), 0, Math.max(0, screenW() - w));
+        int y = clamp(sp.getInt("y", screenH() / 4), 0, Math.max(0, screenH() - h));
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                w, h, TYPE,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.x = x;
+        lp.y = y;
+        lp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED;
+
+        headerRow.setOnTouchListener(new View.OnTouchListener() {
+            float downX;
+            float downY;
+            int startX;
+            int startY;
+
+            public boolean onTouch(View v, MotionEvent e) {
+                if (stickyParams == null) return false;
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX = e.getRawX();
+                        downY = e.getRawY();
+                        startX = stickyParams.x;
+                        startY = stickyParams.y;
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        stickyParams.x = clamp(startX + Math.round(e.getRawX() - downX),
+                                0, Math.max(0, screenW() - stickyParams.width));
+                        stickyParams.y = clamp(startY + Math.round(e.getRawY() - downY),
+                                0, Math.max(0, screenH() - stickyParams.height));
+                        try {
+                            wm.updateViewLayout(stickyView, stickyParams);
+                        } catch (Exception ignored) {
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (stickyParams != null) {
+                            stickyPrefs().edit()
+                                    .putInt("x", stickyParams.x)
+                                    .putInt("y", stickyParams.y)
+                                    .apply();
+                        }
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+        });
+
+        try {
+            wm.addView(box, lp);
+        } catch (Exception e) {
+            stickyEdit = null;
+            toast("Không ghim được bảng nháp");
+            return;
+        }
+        stickyView = box;
+        stickyParams = lp;
+        stickyOn = true;
+        stickyPrefs().edit().putBoolean("on", true).apply();
+        paintToggle("#sticky", true, true);
+        paintStickyState();
+        if (announce) toast("Đã ghim bảng nháp");
+    }
+
+    private void hideSticky(boolean announce) {
+        saveStickyText();
+        removeStickyWindow();
+        stickyPrefs().edit().putBoolean("on", false).apply();
+        paintToggle("#sticky", false, true);
+        paintStickyState();
+        if (announce) toast("Đã bỏ ghim bảng nháp");
+    }
+
+    private void saveStickyText() {
+        if (stickyEdit != null) {
+            stickyPrefs().edit()
+                    .putString("text", stickyEdit.getText().toString())
+                    .apply();
+        }
+    }
+
+    private void removeStickyWindow() {
+        if (stickyView != null) {
+            try {
+                wm.removeView(stickyView);
+            } catch (Exception ignored) {
+            }
+        }
+        stickyView = null;
+        stickyParams = null;
+        stickyEdit = null;
+        stickyOn = false;
+    }
+
+    // ------------------------------------------------------------ quick reminder
+
+    private int reminderMin = 5;
+    private int reminderSec = 0;
+    private boolean reminderRunning;
+    private long reminderEndAt;
+    private TextView reminderStatusView;
+    private TextView reminderStartButton;
+    private EditText reminderInput;
+    private TextView reminderMinValue;
+    private TextView reminderSecValue;
+
+    private static final int REMINDER_NOTIF_ID = 77;
+    private static final String REMINDER_CHANNEL = "reminders";
+
+    private SharedPreferences reminderPrefs() {
+        return getSharedPreferences("reminder", MODE_PRIVATE);
+    }
+
+    private void openReminder() {
+        if (tabViews.containsKey(TAB_REMINDER)) return;
+        SharedPreferences sp = reminderPrefs();
+        reminderMin = clamp(sp.getInt("min", reminderMin), 0, 180);
+        reminderSec = clamp(sp.getInt("sec", reminderSec), 0, 55);
+        buildingTab = TAB_REMINDER;
+        LinearLayout card = buildReminderPanel(sp.getString("text", ""));
+        buildingTab = null;
+        addTab(TAB_REMINDER, card);
+        paintReminder();
+    }
+
+    private LinearLayout buildReminderPanel(String savedText) {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Nhắc nhanh", false, null));
+
+        TextView hint = Ui.text(this,
+                "Hẹn giờ ngắn rồi rung và hiện thông báo kèm dòng chữ anh tự gõ.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        reminderInput = new EditText(this);
+        reminderInput.setBackground(Ui.framed(0xFF0E1116, this, 12));
+        reminderInput.setTextColor(Ui.TEXT);
+        reminderInput.setHintTextColor(0xFF6A7382);
+        reminderInput.setHint("15 phút nữa kiểm tra tiến trình...");
+        reminderInput.setTextSize(13);
+        reminderInput.setPadding(dp(12), dp(9), dp(12), dp(9));
+        reminderInput.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        reminderInput.setText(savedText);
+        card.addView(reminderInput);
+
+        card.addView(label("PHÚT"));
+        LinearLayout minRow = Ui.row(this);
+        TextView mminus = pill("\u2212", false);
+        mminus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        mminus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                reminderMin = clamp(reminderMin - 1, 0, 180);
+                saveReminderTime();
+                paintReminder();
+            }
+        });
+        reminderMinValue = Ui.text(this, "", 15, Ui.TEXT, true);
+        reminderMinValue.setGravity(Gravity.CENTER);
+        TextView mplus = pill("+", false);
+        mplus.setPadding(dp(13), dp(7), dp(13), dp(7));
+        mplus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                reminderMin = clamp(reminderMin + 1, 0, 180);
+                saveReminderTime();
+                paintReminder();
+            }
+        });
+        minRow.addView(mminus);
+        minRow.addView(reminderMinValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        minRow.addView(mplus);
+        card.addView(minRow);
+
+        card.addView(label("GIÂY"));
+        LinearLayout secRow = Ui.row(this);
+        TextView sminus = pill("\u22125", false);
+        sminus.setPadding(dp(11), dp(7), dp(11), dp(7));
+        sminus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                reminderSec = reminderSec - 5;
+                if (reminderSec < 0) reminderSec = 55;
+                saveReminderTime();
+                paintReminder();
+            }
+        });
+        reminderSecValue = Ui.text(this, "", 15, Ui.TEXT, true);
+        reminderSecValue.setGravity(Gravity.CENTER);
+        TextView splus = pill("+5", false);
+        splus.setPadding(dp(11), dp(7), dp(11), dp(7));
+        splus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                reminderSec = reminderSec + 5;
+                if (reminderSec > 55) reminderSec = 0;
+                saveReminderTime();
+                paintReminder();
+            }
+        });
+        secRow.addView(sminus);
+        secRow.addView(reminderSecValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        secRow.addView(splus);
+        card.addView(secRow);
+
+        reminderStartButton = pill("", true);
+        reminderStartButton.setPadding(dp(10), dp(12), dp(10), dp(12));
+        reminderStartButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (reminderRunning) cancelReminder(true);
+                else startReminder();
+            }
+        });
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(14);
+        card.addView(reminderStartButton, bp);
+
+        reminderStatusView = Ui.text(this, "", 12, Ui.ACCENT, true);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        stp.topMargin = dp(8);
+        card.addView(reminderStatusView, stp);
+
+        TextView note = Ui.text(this,
+                "Hết giờ sẽ rung, hiện toast và một thông báo hệ thống. Nhắc vẫn chạy khi đóng tab.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+        return card;
+    }
+
+    private void saveReminderTime() {
+        reminderPrefs().edit()
+                .putInt("min", reminderMin)
+                .putInt("sec", reminderSec)
+                .apply();
+    }
+
+    private void paintReminder() {
+        if (reminderMinValue != null) reminderMinValue.setText(reminderMin + " phút");
+        if (reminderSecValue != null) reminderSecValue.setText(reminderSec + " giây");
+        if (reminderStartButton != null) {
+            reminderStartButton.setText(reminderRunning ? "Huỷ nhắc" : "Bắt đầu nhắc");
+            setPillState(reminderStartButton, !reminderRunning);
+        }
+        if (reminderStatusView != null) {
+            if (reminderRunning) {
+                long left = Math.max(0, reminderEndAt - SystemClock.elapsedRealtime());
+                reminderStatusView.setText("Còn " + clockText(left)
+                        + (reminderInput != null && reminderInput.getText().length() > 0
+                        ? " · " + reminderInput.getText().toString().trim() : ""));
+            } else {
+                reminderStatusView.setText("Chưa có nhắc nào đang chạy");
+            }
+        }
+    }
+
+    private static String clockText(long millis) {
+        long total = Math.max(0, Math.round(millis / 1000.0));
+        long m = total / 60;
+        long s = total % 60;
+        return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+    }
+
+    private void startReminder() {
+        int total = reminderMin * 60 + reminderSec;
+        if (total <= 0) {
+            toast("Đặt thời gian trước đã");
+            return;
+        }
+        String text = reminderInput == null ? "" : reminderInput.getText().toString().trim();
+        if (text.isEmpty()) text = "Hết giờ nhắc việc";
+        reminderPrefs().edit().putString("text", text).apply();
+        reminderRunning = true;
+        reminderEndAt = SystemClock.elapsedRealtime() + total * 1000L;
+        handler.removeCallbacks(reminderTick);
+        handler.post(reminderTick);
+        paintReminder();
+        toast("Sẽ nhắc sau " + (reminderMin > 0 ? reminderMin + " phút " : "")
+                + (reminderSec > 0 ? reminderSec + " giây" : "") + "");
+    }
+
+    private void cancelReminder(boolean announce) {
+        reminderRunning = false;
+        handler.removeCallbacks(reminderTick);
+        paintReminder();
+        if (announce) toast("Đã huỷ nhắc");
+    }
+
+    private void restartReminderTick() {
+        if (!reminderRunning) return;
+        handler.removeCallbacks(reminderTick);
+        handler.post(reminderTick);
+    }
+
+    private final Runnable reminderTick = new Runnable() {
+        public void run() {
+            if (!reminderRunning) return;
+            long left = reminderEndAt - SystemClock.elapsedRealtime();
+            if (left <= 0) {
+                fireReminder();
+                return;
+            }
+            paintReminder();
+            handler.postDelayed(this, 400);
+        }
+    };
+
+    private void fireReminder() {
+        reminderRunning = false;
+        String text = reminderPrefs().getString("text", "Hết giờ nhắc việc");
+        paintReminder();
+        toast("\u23f0 " + text);
+        try {
+            Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+            if (v != null && v.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    v.vibrate(VibrationEffect.createWaveform(
+                            new long[]{0, 180, 120, 180}, -1));
+                } else {
+                    v.vibrate(new long[]{0, 180, 120, 180}, -1);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        notifyReminder(text);
+    }
+
+    private void notifyReminder(String text) {
+        try {
+            NotificationManager nm = (NotificationManager)
+                    getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel ch = new NotificationChannel(REMINDER_CHANNEL,
+                        "Nhắc nhanh", NotificationManager.IMPORTANCE_HIGH);
+                ch.setShowBadge(true);
+                nm.createNotificationChannel(ch);
+            }
+            PendingIntent pi = PendingIntent.getActivity(this, 1,
+                    new Intent(this, MainActivity.class),
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? new Notification.Builder(this, REMINDER_CHANNEL)
+                    : new Notification.Builder(this);
+            b.setContentTitle("Nhắc nhanh")
+                    .setContentText(text)
+                    .setSmallIcon(R.drawable.ic_toasttimer)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .setDefaults(Notification.DEFAULT_ALL);
+            nm.notify(REMINDER_NOTIF_ID, b.build());
+        } catch (Exception ignored) {
+        }
+    }
+
+    // ------------------------------------------------------------ base / ASCII / Caesar
+
+    private String baseReport(String raw, int radix) {
+        String t = raw == null ? "" : raw.trim()
+                .replace(" ", "").replace("_", "").toLowerCase(Locale.ROOT);
+        if (radix == 16 && t.startsWith("0x")) t = t.substring(2);
+        if (radix == 2 && t.startsWith("0b")) t = t.substring(2);
+        if (radix == 10 && (t.startsWith("0d") || t.startsWith("0n"))) t = t.substring(2);
+        if (t.isEmpty()) return "Nhập số trước";
+        try {
+            java.math.BigInteger n = new java.math.BigInteger(t, radix);
+            String bin = n.toString(2);
+            String hex = n.toString(16).toUpperCase(Locale.ROOT);
+            return "Nhị phân: " + bin + "\nHex: " + hex + "\nThập phân: " + n.toString();
+        } catch (Exception e) {
+            return "Không phải số cơ số " + radix;
+        }
+    }
+
+    private String asciiToHex(String text) {
+        try {
+            byte[] bytes = text.getBytes("UTF-8");
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) {
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "Không chuyển được";
+        }
+    }
+
+    private String hexToAscii(String text) {
+        if (text == null) return "";
+        String t = text.replace("0x", "").replace("0X", "")
+                .replace(" ", "").replace(",", "").replace(":", "")
+                .replace("-", "").replace("\n", "").trim();
+        if (t.isEmpty()) return "Dán chuỗi hex trước";
+        if ((t.length() & 1) != 0) return "Chuỗi hex phải có số ký tự chẵn";
+        try {
+            byte[] bytes = new byte[t.length() / 2];
+            for (int i = 0; i < bytes.length; i++) {
+                int hi = Character.digit(t.charAt(i * 2), 16);
+                int lo = Character.digit(t.charAt(i * 2 + 1), 16);
+                if (hi < 0 || lo < 0) return "Có ký tự không phải hex";
+                bytes[i] = (byte) ((hi << 4) | lo);
+            }
+            return new String(bytes, "UTF-8");
+        } catch (Exception e) {
+            return "Không giải được hex";
+        }
+    }
+
+    private String caesar(String text, int shift) {
+        if (text == null) return "";
+        int k = ((shift % 26) + 26) % 26;
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c >= 'a' && c <= 'z') {
+                sb.append((char) ('a' + (c - 'a' + k) % 26));
+            } else if (c >= 'A' && c <= 'Z') {
+                sb.append((char) ('A' + (c - 'A' + k) % 26));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
 
     // ------------------------------------------------------------ ruler overlay
 

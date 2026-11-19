@@ -13,7 +13,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 - **Tác giả:** Nguyễn Nhật Minh Hoàng
 - **Nền tảng:** Android 7.0 (API 24) trở lên
-- **Phiên bản:** 1.0.1 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
+- **Phiên bản:** 1.1.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
 
 ---
 
@@ -50,7 +50,9 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | Màn hình | HUD CPU / FPS / RAM / nhiệt độ, giữ sáng, khoá cảm ứng, soi màu Hex, màn hình đen |
 | Chiến đấu | Tâm ngắm ảo, 4 hẹn giờ song song, khoá độ sáng, khoá xoay, Không làm phiền |
 | Tự động hoá | Tự động chạm một điểm, cảnh báo ngưỡng pin, ảnh tham chiếu nổi |
-| Bảo mật | Tạo mật khẩu mạnh, Base64, MD5, SHA-256 — hoàn toàn offline |
+| Bảo mật | Tạo mật khẩu mạnh, Base64, MD5, SHA-256, nhị phân / hex / ASCII / Caesar — hoàn toàn offline |
+| Thông báo | Đọc lại toast & thông báo nổi, nhắc nhanh bằng rung + thông báo |
+| Mạng & ghi chú | Mở nhanh cài đặt dữ liệu di động / điểm phát sóng, bảng nháp ghim |
 | Giao diện | Ripple lan từ đúng toạ độ chạm, phản hồi nhún, cascade nội dung, animation màn hình |
 
 ### Công cụ mới trong v8.0
@@ -130,6 +132,28 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
   xác với khung đang nhìn.
 
+### Bản 1.1.0
+
+- **Đọc thông báo nhanh** (`#peeker`): tận dụng AccessibilityService để giữ lại
+  các dòng toast, thông báo nổi và cảnh báo chớp nhoáng. Mỗi mục có giờ, tên
+  ứng dụng và nội dung; chạm để chép một dòng, hoặc *Chép tất cả* / *Xoá*.
+  Lịch sử nằm trong bộ nhớ (tối đa 120 mục), không ghi ra đĩa. Công cụ này
+  **đọc lại** chứ không chặn được toast của ứng dụng khác; muốn tắt tiếng thì
+  dùng nút *Không làm phiền*.
+- **Hệ cơ số & ASCII** (trong `#secure`): nhập số rồi chọn *Nhị phân / Hex /
+  Thập phân* để xem cả ba dạng; đổi *ASCII → Hex* và *Hex → ASCII*; mã hoá /
+  giải mã **Caesar** với bước dịch 1–25.
+- **Dữ liệu di động** (`#data`): mở thẳng trang cài đặt dữ liệu di động.
+  **Điểm phát sóng** (`#hotspot`): mở thẳng trang cài đặt điểm phát sóng. Android
+  không cho ứng dụng thường bật/tắt trực tiếp nên hai nút này đưa tới đúng
+  trang cài đặt của máy, có dự phòng về *Cài đặt không dây* nếu máy thiếu trang.
+- **Bảng nháp ghim** (`#sticky`): tờ nháp nổi nhỏ, gõ token / port / toạ độ
+  ngay trên màn hình. Kéo thanh **NHÁP** để dời, chỉnh độ trong suốt 20–100%,
+  nút × để bỏ ghim. Nội dung và vị trí tự lưu, mở lại dịch vụ vẫn còn.
+- **Nhắc nhanh** (`#toasttimer`): đặt số phút (0–180) và giây (bước 5), gõ dòng
+  nhắc việc rồi bấm chạy. Hết giờ sẽ **rung**, hiện toast và một thông báo hệ
+  thống; đồng hồ đếm ngược vẫn chạy khi đóng tab.
+
 ### Bản 1.0.1
 
 - **Đổi bên thanh bên** (`#side`): thêm nút *Đổi bên thanh bên* vào menu. Chạm
@@ -160,8 +184,9 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   Xuyên thấu để thao tác xuyên qua ảnh. Chỉnh độ mờ 20–100%, kích thước
   20–100% bề ngang; ảnh, vị trí và thiết lập được lưu lại.
 
-> Tự động chạm cần bật **Trợ năng** cho Essentials (dùng chung quyền với chụp
-> màn hình). Cảnh báo pin chỉ cần quyền **Rung**.
+> Tự động chạm và Đọc thông báo nhanh cần bật **Trợ năng** cho Essentials
+> (dùng chung quyền với chụp màn hình). Cảnh báo pin và Nhắc nhanh cần quyền
+> **Rung**; Nhắc nhanh cần thêm quyền **Thông báo** để hiện thông báo hệ thống.
 
 ### Quyền riêng tư
 
@@ -210,6 +235,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | `QrCode` | Bộ mã hoá QR thuần Java (byte mode, mức M, version 1–40) |
 | `Crosshair`, `CrosshairView` | Cấu hình và vẽ tâm ngắm overlay |
 | `RefImageActivity` | Chọn ảnh thư viện rồi chuyển URI về thanh bên |
+| `Peeker` | Bộ đệm vòng lưu toast / thông báo nổi do AccessibilityService bắt được |
 | `AboutActivity` | Màn hình giấy phép và bản quyền |
 | `NotesActivity`, `StopwatchActivity`, `ConverterActivity` | Công cụ toàn màn hình |
 | `Ui`, `TouchFade` | Màu/khung, layout helper, ripple và animation |
