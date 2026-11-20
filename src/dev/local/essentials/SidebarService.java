@@ -5351,7 +5351,7 @@ public class SidebarService extends Service {
         card.addView(autoStartButton, bp);
 
         TextView note = Ui.text(this,
-                "Điểm chạm không chặn thao tác của anh. Mở tab này bấm Dừng để tắt.",
+                "Điểm chạm không ảnh hưởng thao tác khác. Mở tab này bấm Dừng để tắt.",
                 11, Ui.MUTED, false);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -7137,7 +7137,7 @@ public class SidebarService extends Service {
         card.addView(header("Nhắc nhanh", false, null));
 
         TextView hint = Ui.text(this,
-                "Hẹn giờ ngắn rồi rung và hiện thông báo kèm dòng chữ anh tự gõ.",
+                "Hẹn giờ ngắn rồi rung và hiện thông báo kèm dòng chữ tự gõ.",
                 11, Ui.MUTED, false);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -7717,7 +7717,7 @@ public class SidebarService extends Service {
         update.run();
 
         TextView note = Ui.text(this,
-                "Giáp giảm sát thương theo công thức 100/(100+giáp hiệu dụng) — chỉnh lại nếu game của anh dùng công thức khác.",
+                "Giáp giảm sát thương theo công thức 100/(100+giáp hiệu dụng) — chỉnh lại nếu game dùng công thức khác.",
                 11, Ui.MUTED, false);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
