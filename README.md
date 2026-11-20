@@ -53,7 +53,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | Bảo mật | Tạo mật khẩu mạnh, Base64, MD5, SHA-256, nhị phân / hex / ASCII / Caesar — hoàn toàn offline |
 | Thông báo | Đọc lại toast & thông báo nổi, nhắc nhanh bằng rung + thông báo |
 | Mạng & ghi chú | Mở nhanh cài đặt dữ liệu di động / điểm phát sóng, bảng nháp ghim |
-| Cày game | Bộ đếm phiên 3 chỉ số (ván thắng, rương, nguyên liệu) có đặt lại từng ô |
+| Cày game | Bộ đếm phiên 3 chỉ số, bảng sát thương, đo nhịp BPM |
 | Giao diện | Ripple lan từ đúng toạ độ chạm, phản hồi nhún, cascade nội dung, animation màn hình |
 
 ### Công cụ mới trong v8.0
@@ -139,6 +139,17 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   tên sửa được (mặc định *Ván thắng*, *Rương đã mở*, *Nguyên liệu*), số lớn dễ
   đọc, nút **−1 / Đặt lại / +1** riêng và nút **Đặt lại cả phiên**. Tên và số
   được lưu lại, tắt app vẫn còn; số không xuống dưới 0.
+- **Bảng sát thương** (`#dmgcalc`): nhập sát thương gốc, hệ số kỹ năng, tỷ lệ và
+  sát thương chí mạng, giáp địch, xuyên giáp, hồi chiêu gốc và giảm hồi chiêu.
+  Kết quả hiện ngay *ST thường*, *ST chí mạng*, *ST trung bình* và *hồi chiêu
+  thực*. Giáp dùng công thức 100/(100+giáp hiệu dụng); mọi ô được lưu lại.
+- **Nhịp BPM** (`#bpm`): chạm đều theo nhịp để đo BPM và số ms mỗi nhịp, kèm
+  nhịp mục tiêu 40–240 BPM và độ lệch tính bằng ms (xanh khi lệch ≤ 30 ms).
+  Nghỉ quá 3 giây thì tự sang chuỗi nhịp mới.
+- **Chạm xuyên lớp phủ** cho **Bảng nháp ghim**: nút đổi *Nhận chạm ↔ Xuyên
+  thấu* ngay trong tab. Xuyên thấu bật `FLAG_NOT_TOUCHABLE` để ngón tay bấm
+  thẳng vào nút bên dưới mà không phải tắt bảng; Ảnh tham chiếu đã có nút tương
+  tự từ trước.
 
 Các mục còn lại trong đợt này đã có công cụ tương đương nên **không làm trùng**:
 

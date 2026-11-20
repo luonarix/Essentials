@@ -24,7 +24,7 @@ final class Side {
             "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
             "#autoclick", "#secure", "#battery", "#refimage", "#side",
             "#peeker", "#data", "#hotspot", "#sticky", "#toasttimer",
-            "#farm", "#menu"
+            "#farm", "#dmgcalc", "#bpm", "#menu"
     };
 
     static final String[] LABELS = {
@@ -39,7 +39,8 @@ final class Side {
             "Tự động chạm", "Mật khẩu & mã hoá", "Cảnh báo pin",
             "Ảnh tham chiếu nổi", "Đổi bên thanh bên", "Đọc thông báo nhanh",
             "Dữ liệu di động", "Điểm phát sóng", "Bảng nháp ghim",
-            "Nhắc nhanh", "Bộ đếm phiên cày", "Menu đầy đủ"
+            "Nhắc nhanh", "Bộ đếm phiên cày", "Bảng sát thương",
+            "Nhịp BPM", "Menu đầy đủ"
     };
 
     /** Tools added in v7.0, appended once to lists saved by older versions. */
@@ -78,6 +79,11 @@ final class Side {
             "#farm"
     };
 
+    /** Extra tools folded into the v1.2.0 patch after the first build. */
+    static final String[] V120B_ITEMS = {
+            "#dmgcalc", "#bpm"
+    };
+
     private Side() {}
 
     static List<String> items(Context c) {
@@ -92,7 +98,7 @@ final class Side {
                     "#crosshair", "#timers", "#brightness", "#rotate", "#dnd",
                     "#autoclick", "#secure", "#battery", "#refimage", "#side",
                     "#peeker", "#data", "#hotspot", "#sticky", "#toasttimer",
-                    "#farm"));
+                    "#farm", "#dmgcalc", "#bpm"));
         }
         List<String> out = new ArrayList<>();
         for (String s : raw.split(",")) {
@@ -292,6 +298,25 @@ final class Side {
         }
         setItems(c, ids);
         sp.edit().putBoolean("tools_v120", true).apply();
+    }
+
+    /** Adds the late v1.2.0 tools once, keeping "#menu" last when present. */
+    static void ensureToolkit120b(Context c) {
+        SharedPreferences sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        if (sp.getBoolean("tools_v120b", false)) return;
+        List<String> ids = items(c);
+        int menu = ids.indexOf("#menu");
+        for (String id : V120B_ITEMS) {
+            if (ids.contains(id)) continue;
+            if (menu >= 0) {
+                ids.add(menu, id);
+                menu++;
+            } else {
+                ids.add(id);
+            }
+        }
+        setItems(c, ids);
+        sp.edit().putBoolean("tools_v120b", true).apply();
     }
 
     /** True when the handle and dock sit on the left screen edge. */

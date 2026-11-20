@@ -196,6 +196,8 @@ public class SidebarService extends Service {
     private static final String TAB_STICKY = "sticky";
     private static final String TAB_REMINDER = "reminder";
     private static final String TAB_FARM = "farm";
+    private static final String TAB_DMG = "dmgcalc";
+    private static final String TAB_BPM = "bpm";
 
     /** Tab key -> the menu button that toggles it. */
     private static String tabButtonId(String key) {
@@ -216,6 +218,8 @@ public class SidebarService extends Service {
         if (TAB_STICKY.equals(key)) return "#sticky";
         if (TAB_REMINDER.equals(key)) return "#toasttimer";
         if (TAB_FARM.equals(key)) return "#farm";
+        if (TAB_DMG.equals(key)) return "#dmgcalc";
+        if (TAB_BPM.equals(key)) return "#bpm";
         return null;
     }
 
@@ -270,6 +274,7 @@ public class SidebarService extends Service {
         Side.ensureToolkit101(this);
         Side.ensureToolkit110(this);
         Side.ensureToolkit120(this);
+        Side.ensureToolkit120b(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastConfigW = getResources().getDisplayMetrics().widthPixels;
@@ -1125,6 +1130,7 @@ public class SidebarService extends Service {
         peekerStatus = null;
         stickyStatusView = null;
         stickyPinButton = null;
+        stickyClickButton = null;
         reminderStatusView = null;
         reminderStartButton = null;
         reminderInput = null;
@@ -1134,6 +1140,10 @@ public class SidebarService extends Service {
             farmValues[i] = null;
             farmNames[i] = null;
         }
+        bpmValue = null;
+        bpmMs = null;
+        bpmStatus = null;
+        bpmTargetValue = null;
         setHandleOpen(false);
         scheduleTuck();
     }
@@ -1164,6 +1174,8 @@ public class SidebarService extends Service {
         else if (TAB_STICKY.equals(key)) openSticky();
         else if (TAB_REMINDER.equals(key)) openReminder();
         else if (TAB_FARM.equals(key)) openFarm();
+        else if (TAB_DMG.equals(key)) openDmgCalc();
+        else if (TAB_BPM.equals(key)) openBpm();
         else if (TAB_NOTEDETAIL.equals(key)) openNotes();
     }
 
@@ -1285,6 +1297,13 @@ public class SidebarService extends Service {
         if (TAB_STICKY.equals(key)) {
             stickyStatusView = null;
             stickyPinButton = null;
+            stickyClickButton = null;
+        }
+        if (TAB_BPM.equals(key)) {
+            bpmValue = null;
+            bpmMs = null;
+            bpmStatus = null;
+            bpmTargetValue = null;
         }
         if (TAB_FARM.equals(key)) {
             for (int i = 0; i < FARM_SLOTS; i++) {
@@ -1310,6 +1329,7 @@ public class SidebarService extends Service {
                 || tabViews.containsKey(TAB_QR)
                 || tabViews.containsKey(TAB_SECURE)
                 || tabViews.containsKey(TAB_FARM)
+                || tabViews.containsKey(TAB_DMG)
                 || tabViews.containsKey(TAB_REMINDER);
     }
 
@@ -1882,6 +1902,12 @@ public class SidebarService extends Service {
             case "#farm":
                 iconRes = R.drawable.ic_farm;
                 break;
+            case "#dmgcalc":
+                iconRes = R.drawable.ic_dmgcalc;
+                break;
+            case "#bpm":
+                iconRes = R.drawable.ic_bpm;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -2096,6 +2122,14 @@ public class SidebarService extends Service {
         }
         if ("#farm".equals(id)) {
             toggleTab(TAB_FARM);
+            return;
+        }
+        if ("#dmgcalc".equals(id)) {
+            toggleTab(TAB_DMG);
+            return;
+        }
+        if ("#bpm".equals(id)) {
+            toggleTab(TAB_BPM);
             return;
         }
         if ("#data".equals(id)) {
@@ -6755,8 +6789,10 @@ public class SidebarService extends Service {
     private EditText stickyEdit;
     private boolean stickyOn;
     private int stickyAlpha = 80;
+    private boolean stickyClickThrough;
     private TextView stickyStatusView;
     private TextView stickyPinButton;
+    private TextView stickyClickButton;
 
     private SharedPreferences stickyPrefs() {
         return getSharedPreferences("sticky", MODE_PRIVATE);
@@ -6766,6 +6802,7 @@ public class SidebarService extends Service {
         if (tabViews.containsKey(TAB_STICKY)) return;
         SharedPreferences sp = stickyPrefs();
         stickyAlpha = clamp(sp.getInt("alpha", stickyAlpha), 20, 100);
+        stickyClickThrough = sp.getBoolean("click", false);
         buildingTab = TAB_STICKY;
         LinearLayout card = buildStickyPanel();
         buildingTab = null;
@@ -6793,8 +6830,9 @@ public class SidebarService extends Service {
         ssp.bottomMargin = dp(8);
         card.addView(stickyStatusView, ssp);
 
+        LinearLayout pinRow = Ui.row(this);
         stickyPinButton = pill("", true);
-        stickyPinButton.setPadding(dp(10), dp(11), dp(10), dp(11));
+        stickyPinButton.setPadding(dp(8), dp(11), dp(8), dp(11));
         stickyPinButton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (stickyOn) hideSticky(true);
@@ -6802,7 +6840,21 @@ public class SidebarService extends Service {
                 paintStickyState();
             }
         });
-        card.addView(stickyPinButton);
+        stickyClickButton = pill("", false);
+        stickyClickButton.setPadding(dp(8), dp(11), dp(8), dp(11));
+        stickyClickButton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                stickyClickThrough = !stickyClickThrough;
+                stickyPrefs().edit().putBoolean("click", stickyClickThrough).apply();
+                applyStickyTouchMode();
+                paintStickyState();
+            }
+        });
+        pinRow.addView(stickyPinButton, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams ccp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        ccp.leftMargin = dp(6);
+        pinRow.addView(stickyClickButton, ccp);
+        card.addView(pinRow);
 
         card.addView(label("ĐỘ TRONG SUỐT"));
         final TextView alphaValue = Ui.text(this, stickyAlpha + "%", 12, Ui.TEXT, true);
@@ -6847,7 +6899,7 @@ public class SidebarService extends Service {
         card.addView(clear, clp);
 
         TextView note = Ui.text(this,
-                "Kéo thanh NHÁP để dời bảng. Bảng tự lưu nội dung và vị trí, mở lại dịch vụ vẫn còn.",
+                "Kéo thanh NHÁP để dời bảng. Bật Xuyên thấu để chạm thẳng vào nút bên dưới; tắt để kéo và gõ.",
                 11, Ui.MUTED, false);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -6865,8 +6917,24 @@ public class SidebarService extends Service {
                     : hasText ? "Có nội dung · chưa ghim" : "Bảng nháp trống");
         }
         if (stickyPinButton != null) {
-            stickyPinButton.setText(stickyOn ? "Bỏ ghim bảng nháp" : "Ghim bảng nháp");
+            stickyPinButton.setText(stickyOn ? "Bỏ ghim" : "Ghim bảng");
             setPillState(stickyPinButton, !stickyOn);
+        }
+        if (stickyClickButton != null) {
+            stickyClickButton.setText(stickyClickThrough ? "Xuyên thấu" : "Nhận chạm");
+            setPillState(stickyClickButton, stickyClickThrough);
+        }
+    }
+
+    private void applyStickyTouchMode() {
+        if (stickyView == null || stickyParams == null) return;
+        stickyParams.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | (stickyClickThrough
+                ? WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : 0);
+        try {
+            wm.updateViewLayout(stickyView, stickyParams);
+        } catch (Exception ignored) {
         }
     }
 
@@ -6936,7 +7004,9 @@ public class SidebarService extends Service {
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 w, h, TYPE,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | (stickyClickThrough
+                        ? WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : 0),
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
         lp.x = x;
@@ -7534,6 +7604,326 @@ public class SidebarService extends Service {
         if (value == null) return;
         value.setText(String.valueOf(farmValue(index)));
         Ui.pop(value);
+    }
+
+
+    // ------------------------------------------------------------ damage calculator
+
+    private SharedPreferences dmgPrefs() {
+        return getSharedPreferences("dmgcalc", MODE_PRIVATE);
+    }
+
+    private void openDmgCalc() {
+        if (tabViews.containsKey(TAB_DMG)) return;
+        buildingTab = TAB_DMG;
+        LinearLayout card = buildDmgPanel();
+        buildingTab = null;
+        addTab(TAB_DMG, card);
+    }
+
+    private EditText dmgField(LinearLayout parent, String label, String key,
+                              String fallback, List<EditText> fields) {
+        LinearLayout row = Ui.row(this);
+        TextView name = Ui.text(this, label, 12, Ui.MUTED, false);
+        row.addView(name, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        EditText e = new EditText(this);
+        e.setBackground(Ui.framed(0xFF0E1116, this, 10));
+        e.setTextColor(Ui.TEXT);
+        e.setTextSize(13);
+        e.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        e.setPadding(dp(9), dp(7), dp(9), dp(7));
+        e.setText(dmgPrefs().getString(key, fallback));
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(
+                dp(96), ViewGroup.LayoutParams.WRAP_CONTENT);
+        row.addView(e, ep);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(5);
+        parent.addView(row, rp);
+        fields.add(e);
+        return e;
+    }
+
+    private LinearLayout buildDmgPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Bảng sát thương", false, null));
+
+        TextView hint = Ui.text(this,
+                "Tính nhanh sát thương và tỷ lệ: hệ số kỹ năng, chí mạng, xuyên giáp, hồi chiêu.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(6);
+        card.addView(hint, hp);
+
+        List<EditText> fields = new ArrayList<>();
+        final EditText atk = dmgField(card, "Sát thương gốc", "atk", "100", fields);
+        final EditText ratio = dmgField(card, "Hệ số kỹ năng %", "ratio", "100", fields);
+        final EditText critChance = dmgField(card, "Tỷ lệ chí mạng %", "crit", "0", fields);
+        final EditText critDmg = dmgField(card, "ST chí mạng %", "critdmg", "50", fields);
+        final EditText armor = dmgField(card, "Giáp địch", "armor", "0", fields);
+        final EditText pen = dmgField(card, "Xuyên giáp %", "pen", "0", fields);
+        final EditText cd = dmgField(card, "Hồi chiêu gốc (s)", "cd", "10", fields);
+        final EditText cdr = dmgField(card, "Giảm hồi chiêu %", "cdr", "0", fields);
+
+        final TextView output = Ui.text(this, "", 12, Ui.TEXT, false);
+        output.setTypeface(android.graphics.Typeface.MONOSPACE);
+        output.setTextIsSelectable(true);
+        output.setBackground(Ui.framed(ITEM_BG_SOFT, this, 12));
+        output.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        op.topMargin = dp(12);
+        card.addView(output, op);
+
+        final Runnable update = new Runnable() {
+            public void run() {
+                double a = dmgNum(atk, 100);
+                double r = dmgNum(ratio, 100);
+                double cc = dmgNum(critChance, 0);
+                double cm = dmgNum(critDmg, 50);
+                double ar = dmgNum(armor, 0);
+                double p = dmgNum(pen, 0);
+                double baseCd = dmgNum(cd, 10);
+                double cr = dmgNum(cdr, 0);
+
+                double base = a * r / 100.0;
+                double effArmor = Math.max(0, ar * (1 - p / 100.0));
+                double mit = 100.0 / (100.0 + effArmor);
+                double normal = base * mit;
+                double crit = normal * (1 + cm / 100.0);
+                double avg = normal * (1 + (cc / 100.0) * (cm / 100.0));
+                double realCd = Math.max(0, baseCd * (1 - Math.min(100, cr) / 100.0));
+
+                output.setText("Giáp hiệu dụng: " + dmgFmt(effArmor) + "\n"
+                        + "ST thường: " + dmgFmt(normal) + "\n"
+                        + "ST chí mạng: " + dmgFmt(crit) + "\n"
+                        + "ST trung bình: " + dmgFmt(avg) + "\n"
+                        + "Hồi chiêu thực: " + dmgFmt(realCd) + " s");
+            }
+        };
+        watchDmg(atk, "atk", update);
+        watchDmg(ratio, "ratio", update);
+        watchDmg(critChance, "crit", update);
+        watchDmg(critDmg, "critdmg", update);
+        watchDmg(armor, "armor", update);
+        watchDmg(pen, "pen", update);
+        watchDmg(cd, "cd", update);
+        watchDmg(cdr, "cdr", update);
+        update.run();
+
+        TextView note = Ui.text(this,
+                "Giáp giảm sát thương theo công thức 100/(100+giáp hiệu dụng) — chỉnh lại nếu game của anh dùng công thức khác.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+        return card;
+    }
+
+    private void watchDmg(final EditText field, final String key, final Runnable update) {
+        field.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void afterTextChanged(android.text.Editable e) {
+                dmgPrefs().edit().putString(key, e.toString()).apply();
+                update.run();
+            }
+        });
+    }
+
+    private static double dmgNum(EditText field, double fallback) {
+        if (field == null) return fallback;
+        String raw = field.getText().toString().trim().replace(',', '.');
+        if (raw.isEmpty()) return fallback;
+        try {
+            double v = Double.parseDouble(raw);
+            if (Double.isNaN(v) || Double.isInfinite(v)) return fallback;
+            return Math.max(0, v);
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private static String dmgFmt(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return "\u2014";
+        String s = String.format(Locale.US, "%.1f", v);
+        if (s.endsWith(".0")) s = s.substring(0, s.length() - 2);
+        return s;
+    }
+
+    // ------------------------------------------------------------ BPM / tap tempo
+
+    private final long[] bpmTimes = new long[16];
+    private int bpmCount;
+    private int bpmTarget = 120;
+    private TextView bpmValue;
+    private TextView bpmMs;
+    private TextView bpmStatus;
+    private TextView bpmTargetValue;
+
+    private SharedPreferences bpmPrefs() {
+        return getSharedPreferences("bpm", MODE_PRIVATE);
+    }
+
+    private void openBpm() {
+        if (tabViews.containsKey(TAB_BPM)) return;
+        bpmTarget = clamp(bpmPrefs().getInt("target", 120), 40, 240);
+        bpmCount = 0;
+        buildingTab = TAB_BPM;
+        LinearLayout card = buildBpmPanel();
+        buildingTab = null;
+        addTab(TAB_BPM, card);
+        paintBpm();
+    }
+
+    private LinearLayout buildBpmPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Nhịp & BPM", false, null));
+
+        TextView hint = Ui.text(this,
+                "Chạm đều theo nhịp cần đo. Dùng để canh combo, cancel animation hoặc luyện giữ nhịp.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        bpmValue = Ui.text(this, "\u2014", 46, Ui.ACCENT, true);
+        bpmValue.setTypeface(android.graphics.Typeface.MONOSPACE);
+        bpmValue.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(6);
+        card.addView(bpmValue, bp);
+
+        TextView unit = Ui.text(this, "BPM", 11, Ui.MUTED, true);
+        unit.setGravity(Gravity.CENTER);
+        unit.setLetterSpacing(0.16f);
+        card.addView(unit);
+
+        bpmMs = Ui.text(this, "Chạm ít nhất 2 lần", 12, Ui.MUTED, false);
+        bpmMs.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        mp.topMargin = dp(6);
+        card.addView(bpmMs, mp);
+
+        TextView tap = pill("CHẠM THEO NHỊP", true);
+        tap.setTextSize(15);
+        tap.setPadding(dp(10), dp(16), dp(10), dp(16));
+        tap.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                tapBpm();
+            }
+        });
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.topMargin = dp(12);
+        card.addView(tap, tp);
+
+        card.addView(label("NHỊP MỤC TIÊU"));
+        LinearLayout targetRow = Ui.row(this);
+        TextView minus = pill("\u22125", false);
+        minus.setPadding(dp(11), dp(7), dp(11), dp(7));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                bpmTarget = clamp(bpmTarget - 5, 40, 240);
+                bpmPrefs().edit().putInt("target", bpmTarget).apply();
+                paintBpm();
+            }
+        });
+        bpmTargetValue = Ui.text(this, "", 15, Ui.TEXT, true);
+        bpmTargetValue.setGravity(Gravity.CENTER);
+        TextView plus = pill("+5", false);
+        plus.setPadding(dp(11), dp(7), dp(11), dp(7));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                bpmTarget = clamp(bpmTarget + 5, 40, 240);
+                bpmPrefs().edit().putInt("target", bpmTarget).apply();
+                paintBpm();
+            }
+        });
+        targetRow.addView(minus);
+        targetRow.addView(bpmTargetValue, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        targetRow.addView(plus);
+        card.addView(targetRow);
+
+        bpmStatus = Ui.text(this, "", 12, Ui.MUTED, false);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.topMargin = dp(10);
+        card.addView(bpmStatus, sp);
+
+        TextView reset = pill("Đo lại", false);
+        reset.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                bpmCount = 0;
+                paintBpm();
+            }
+        });
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rp.topMargin = dp(8);
+        card.addView(reset, rp);
+
+        TextView note = Ui.text(this,
+                "Nghỉ quá 3 giây sẽ tự bắt đầu chuỗi nhịp mới. Kết quả là trung bình các lần chạm gần nhất.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+        return card;
+    }
+
+    private void tapBpm() {
+        long now = SystemClock.elapsedRealtime();
+        if (bpmCount > 0 && now - bpmTimes[bpmCount - 1] > 3000) bpmCount = 0;
+        if (bpmCount == bpmTimes.length) {
+            System.arraycopy(bpmTimes, 1, bpmTimes, 0, bpmTimes.length - 1);
+            bpmCount--;
+        }
+        bpmTimes[bpmCount++] = now;
+        paintBpm();
+        if (bpmValue != null) Ui.pop(bpmValue);
+    }
+
+    private void paintBpm() {
+        if (bpmTargetValue != null) bpmTargetValue.setText(bpmTarget + " BPM");
+        if (bpmValue == null) return;
+        if (bpmCount < 2) {
+            bpmValue.setText("\u2014");
+            if (bpmMs != null) bpmMs.setText("Chạm ít nhất 2 lần");
+            if (bpmStatus != null) {
+                bpmStatus.setText(bpmCount == 1 ? "Đã chạm 1 lần" : "Chưa đo");
+                bpmStatus.setTextColor(Ui.MUTED);
+            }
+            return;
+        }
+        double avg = (bpmTimes[bpmCount - 1] - bpmTimes[0]) / (double) (bpmCount - 1);
+        double bpm = 60000.0 / avg;
+        bpmValue.setText(String.valueOf(Math.round(bpm)));
+        if (bpmMs != null) bpmMs.setText(Math.round(avg) + " ms / nhịp");
+        if (bpmStatus != null) {
+            double targetMs = 60000.0 / bpmTarget;
+            double diff = avg - targetMs;
+            String sign = diff >= 0 ? "+" : "\u2212";
+            bpmStatus.setText(bpmCount + " lần chạm · lệch " + sign
+                    + Math.abs(Math.round(diff)) + " ms so với " + bpmTarget + " BPM");
+            bpmStatus.setTextColor(Math.abs(diff) <= 30 ? TOGGLE_GREEN : Ui.MUTED);
+        }
     }
 
     // ------------------------------------------------------------ ruler overlay
