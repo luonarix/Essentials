@@ -13,7 +13,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 - **Tác giả:** Nguyễn Nhật Minh Hoàng
 - **Nền tảng:** Android 7.0 (API 24) trở lên
-- **Phiên bản:** 1.1.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
+- **Phiên bản:** 1.2.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
 
 ---
 
@@ -53,6 +53,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 | Bảo mật | Tạo mật khẩu mạnh, Base64, MD5, SHA-256, nhị phân / hex / ASCII / Caesar — hoàn toàn offline |
 | Thông báo | Đọc lại toast & thông báo nổi, nhắc nhanh bằng rung + thông báo |
 | Mạng & ghi chú | Mở nhanh cài đặt dữ liệu di động / điểm phát sóng, bảng nháp ghim |
+| Cày game | Bộ đếm phiên 3 chỉ số (ván thắng, rương, nguyên liệu) có đặt lại từng ô |
 | Giao diện | Ripple lan từ đúng toạ độ chạm, phản hồi nhún, cascade nội dung, animation màn hình |
 
 ### Công cụ mới trong v8.0
@@ -131,6 +132,24 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Khung chọn vùng full màn hình**: ẩn thanh thông báo và thanh điều hướng
   trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
   xác với khung đang nhìn.
+
+### Bản 1.2.0
+
+- **Bộ đếm phiên cày** (`#farm`): ba ô đếm độc lập cho một phiên chơi. Mỗi ô có
+  tên sửa được (mặc định *Ván thắng*, *Rương đã mở*, *Nguyên liệu*), số lớn dễ
+  đọc, nút **−1 / Đặt lại / +1** riêng và nút **Đặt lại cả phiên**. Tên và số
+  được lưu lại, tắt app vẫn còn; số không xuống dưới 0.
+
+Các mục còn lại trong đợt này đã có công cụ tương đương nên **không làm trùng**:
+
+- *Cheat-sheet ghim góc* trùng với **Bảng nháp ghim** (`#sticky`) — cũng là thẻ
+  nổi bán trong suốt, kéo được, lưu nội dung.
+- *Floating App Dock mini* đã có sẵn: mở **Menu đầy đủ → + Thêm ứng dụng** để
+  ghim ứng dụng ngoài thành icon trên thanh bên.
+- *Canh mốc sự kiện / Cooldown* dùng **Đa hẹn giờ** (`#timers`, 4 bộ đếm song
+  song) hoặc **Nhắc nhanh** (`#toasttimer`, có rung + thông báo + dòng chữ tự gõ).
+- *Treo máy nhẹ / màn hình tối* dùng **Màn hình đen** (`#black`, giữ app chạy bên
+  dưới, chặn chạm nhầm, giữ sáng màn hình, giữ lâu để thoát).
 
 ### Bản 1.1.0
 

@@ -195,6 +195,7 @@ public class SidebarService extends Service {
     private static final String TAB_PEEKER = "peeker";
     private static final String TAB_STICKY = "sticky";
     private static final String TAB_REMINDER = "reminder";
+    private static final String TAB_FARM = "farm";
 
     /** Tab key -> the menu button that toggles it. */
     private static String tabButtonId(String key) {
@@ -214,6 +215,7 @@ public class SidebarService extends Service {
         if (TAB_PEEKER.equals(key)) return "#peeker";
         if (TAB_STICKY.equals(key)) return "#sticky";
         if (TAB_REMINDER.equals(key)) return "#toasttimer";
+        if (TAB_FARM.equals(key)) return "#farm";
         return null;
     }
 
@@ -267,6 +269,7 @@ public class SidebarService extends Service {
         Side.ensureToolkit92(this);
         Side.ensureToolkit101(this);
         Side.ensureToolkit110(this);
+        Side.ensureToolkit120(this);
         keepAwake = Side.caffeineOn(this);
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastConfigW = getResources().getDisplayMetrics().widthPixels;
@@ -1127,6 +1130,10 @@ public class SidebarService extends Service {
         reminderInput = null;
         reminderMinValue = null;
         reminderSecValue = null;
+        for (int i = 0; i < FARM_SLOTS; i++) {
+            farmValues[i] = null;
+            farmNames[i] = null;
+        }
         setHandleOpen(false);
         scheduleTuck();
     }
@@ -1156,6 +1163,7 @@ public class SidebarService extends Service {
         else if (TAB_PEEKER.equals(key)) openPeeker();
         else if (TAB_STICKY.equals(key)) openSticky();
         else if (TAB_REMINDER.equals(key)) openReminder();
+        else if (TAB_FARM.equals(key)) openFarm();
         else if (TAB_NOTEDETAIL.equals(key)) openNotes();
     }
 
@@ -1278,6 +1286,12 @@ public class SidebarService extends Service {
             stickyStatusView = null;
             stickyPinButton = null;
         }
+        if (TAB_FARM.equals(key)) {
+            for (int i = 0; i < FARM_SLOTS; i++) {
+                farmValues[i] = null;
+                farmNames[i] = null;
+            }
+        }
         if (TAB_REMINDER.equals(key)) {
             reminderStatusView = null;
             reminderStartButton = null;
@@ -1294,7 +1308,9 @@ public class SidebarService extends Service {
         return tabViews.containsKey(TAB_QUICKNOTE)
                 || tabViews.containsKey(TAB_CLIP)
                 || tabViews.containsKey(TAB_QR)
-                || tabViews.containsKey(TAB_SECURE);
+                || tabViews.containsKey(TAB_SECURE)
+                || tabViews.containsKey(TAB_FARM)
+                || tabViews.containsKey(TAB_REMINDER);
     }
 
     /** Warm accent frame on menu buttons whose tab is open. */
@@ -1863,6 +1879,9 @@ public class SidebarService extends Service {
             case "#toasttimer":
                 iconRes = R.drawable.ic_toasttimer;
                 break;
+            case "#farm":
+                iconRes = R.drawable.ic_farm;
+                break;
             case "#menu":
                 iconRes = R.drawable.ic_settings;
                 break;
@@ -2073,6 +2092,10 @@ public class SidebarService extends Service {
         }
         if ("#toasttimer".equals(id)) {
             toggleTab(TAB_REMINDER);
+            return;
+        }
+        if ("#farm".equals(id)) {
+            toggleTab(TAB_FARM);
             return;
         }
         if ("#data".equals(id)) {
@@ -7344,6 +7367,173 @@ public class SidebarService extends Service {
             }
         }
         return sb.toString();
+    }
+
+
+    // ------------------------------------------------------------ farm session counter
+
+    private static final int FARM_SLOTS = 3;
+    private static final String[] FARM_DEFAULT_NAMES = {
+            "Ván thắng", "Rương đã mở", "Nguyên liệu"
+    };
+    private final TextView[] farmValues = new TextView[FARM_SLOTS];
+    private final EditText[] farmNames = new EditText[FARM_SLOTS];
+
+    private SharedPreferences farmPrefs() {
+        return getSharedPreferences("farm", MODE_PRIVATE);
+    }
+
+    private int farmValue(int i) {
+        return farmPrefs().getInt("val" + i, 0);
+    }
+
+    private void setFarmValue(int i, int value) {
+        farmPrefs().edit().putInt("val" + i, Math.max(0, value)).apply();
+    }
+
+    private String farmName(int i) {
+        return farmPrefs().getString("name" + i, FARM_DEFAULT_NAMES[i]);
+    }
+
+    private void openFarm() {
+        if (tabViews.containsKey(TAB_FARM)) return;
+        buildingTab = TAB_FARM;
+        LinearLayout card = buildFarmPanel();
+        buildingTab = null;
+        addTab(TAB_FARM, card);
+    }
+
+    private LinearLayout buildFarmPanel() {
+        LinearLayout card = glassCard();
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        card.addView(header("Bộ đếm phiên cày", false, null));
+
+        TextView hint = Ui.text(this,
+                "Đếm số ván, lượt quay, rương hay nguyên liệu trong một phiên cày. Tên và số đều được lưu lại.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hp.topMargin = dp(2);
+        hp.bottomMargin = dp(8);
+        card.addView(hint, hp);
+
+        for (int i = 0; i < FARM_SLOTS; i++) {
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rp.topMargin = dp(i == 0 ? 0 : 8);
+            card.addView(farmRow(i), rp);
+        }
+
+        TextView resetAll = pill("Đặt lại cả phiên", false);
+        resetAll.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                for (int i = 0; i < FARM_SLOTS; i++) {
+                    setFarmValue(i, 0);
+                    paintFarmValue(i);
+                }
+                toast("Đã đặt lại cả phiên");
+            }
+        });
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.topMargin = dp(12);
+        card.addView(resetAll, ap);
+
+        TextView note = Ui.text(this,
+                "Chạm tên để đổi thành “Ván thua”, “Lượt quay”, “Quái đã farm”... Nút Đặt lại từng ô nằm ngay dưới mỗi chỉ số.",
+                11, Ui.MUTED, false);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(10);
+        card.addView(note, np);
+        return card;
+    }
+
+    private View farmRow(final int index) {
+        LinearLayout box = Ui.col(this);
+        box.setBackground(Ui.framed(ITEM_BG_SOFT, this, 14));
+        box.setPadding(dp(11), dp(7), dp(11), dp(9));
+
+        LinearLayout top = Ui.row(this);
+        final EditText name = new EditText(this);
+        name.setBackground(null);
+        name.setTextColor(Ui.TEXT);
+        name.setTextSize(13);
+        name.setHintTextColor(0xFF6A7382);
+        name.setHint("Tên chỉ số");
+        name.setSingleLine(true);
+        name.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        name.setPadding(0, 0, dp(6), 0);
+        name.setText(farmName(index));
+        name.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            public void afterTextChanged(android.text.Editable e) {
+                farmPrefs().edit().putString("name" + index, e.toString()).apply();
+            }
+        });
+        farmNames[index] = name;
+        top.addView(name, Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView value = Ui.text(this, String.valueOf(farmValue(index)),
+                26, Ui.ACCENT, true);
+        value.setTypeface(android.graphics.Typeface.MONOSPACE);
+        value.setGravity(Gravity.END);
+        value.setMinWidth(dp(58));
+        farmValues[index] = value;
+        top.addView(value);
+        box.addView(top);
+
+        LinearLayout actions = Ui.row(this);
+        TextView minus = pill("\u22121", false);
+        minus.setPadding(dp(8), dp(6), dp(8), dp(6));
+        minus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                setFarmValue(index, farmValue(index) - 1);
+                paintFarmValue(index);
+            }
+        });
+        TextView reset = pill("Đặt lại", false);
+        reset.setPadding(dp(8), dp(6), dp(8), dp(6));
+        reset.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                setFarmValue(index, 0);
+                paintFarmValue(index);
+            }
+        });
+        TextView plus = pill("+1", true);
+        plus.setPadding(dp(8), dp(6), dp(8), dp(6));
+        plus.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                setFarmValue(index, farmValue(index) + 1);
+                paintFarmValue(index);
+            }
+        });
+        LinearLayout.LayoutParams lp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        actions.addView(minus, lp);
+        LinearLayout.LayoutParams lp2 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp2.leftMargin = dp(5);
+        actions.addView(reset, lp2);
+        LinearLayout.LayoutParams lp3 = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp3.leftMargin = dp(5);
+        actions.addView(plus, lp3);
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ap.topMargin = dp(6);
+        box.addView(actions, ap);
+        return box;
+    }
+
+    private void paintFarmValue(int index) {
+        TextView value = farmValues[index];
+        if (value == null) return;
+        value.setText(String.valueOf(farmValue(index)));
+        Ui.pop(value);
     }
 
     // ------------------------------------------------------------ ruler overlay
