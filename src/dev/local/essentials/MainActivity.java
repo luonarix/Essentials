@@ -51,8 +51,22 @@ public class MainActivity extends Activity {
         Ui.margin(this, sub, 0, 6, 0, 0);
         root.addView(sub);
 
+        root.addView(buildSearchCard());
+
         root.addView(section("THANH BÊN"));
         root.addView(buildSideCard());
+
+        root.addView(section("TÙY CHỈNH"));
+        addLink(root, R.drawable.ic_settings, "Tính năng & dữ liệu", new View.OnClickListener() {
+            public void onClick(View v) {
+                open(FeaturesActivity.class);
+            }
+        });
+        addLink(root, R.drawable.ic_lock, "Quyền hệ thống", new View.OnClickListener() {
+            public void onClick(View v) {
+                open(PermissionsActivity.class);
+            }
+        });
 
         root.addView(section("CÔNG CỤ"));
 
@@ -138,6 +152,7 @@ public class MainActivity extends Activity {
         sv.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(sv);
+        Shortcuts.sync(this);
         Ui.stagger(root, 40, 26);
     }
 
@@ -155,6 +170,37 @@ public class MainActivity extends Activity {
 
     private boolean canOverlay() {
         return Settings.canDrawOverlays(this);
+    }
+
+    private View buildSearchCard() {
+        LinearLayout card = Ui.row(this);
+        card.setBackground(Ui.framed(Ui.SURFACE, this, 16));
+        card.setPadding(Ui.dp(this, 14), Ui.dp(this, 13), Ui.dp(this, 14), Ui.dp(this, 13));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_quick);
+        icon.setColorFilter(Ui.ACCENT);
+        card.addView(icon, Ui.lp(Ui.dp(this, 20), Ui.dp(this, 20)));
+
+        TextView hint = Ui.text(this, "Tìm công cụ...", 15, Ui.MUTED, false);
+        LinearLayout.LayoutParams hp = Ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        hp.leftMargin = Ui.dp(this, 12);
+        card.addView(hint, hp);
+
+        card.addView(Ui.text(this, "Tìm \u203a", 12, Ui.ACCENT, true));
+
+        card.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                open(SearchActivity.class);
+            }
+        });
+        card.setClickable(true);
+        Ui.press(card, 0.98f);
+        LinearLayout.LayoutParams p = Ui.lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.topMargin = Ui.dp(this, 18);
+        card.setLayoutParams(p);
+        return card;
     }
 
     private View buildSideCard() {

@@ -285,6 +285,8 @@ public class SidebarService extends Service {
             stopSelf();
         } else {
             applyKeepAwake(keepAwake);
+            loadTimers();
+            restartTimerTick();
             scheduleTuck();
             if (Side.hudOn(this)) addHud(false);
             if (Crosshair.enabled(this)) addCrosshair(false);
@@ -306,6 +308,16 @@ public class SidebarService extends Service {
                     openShot();
                 }
             }, 300);
+        }
+        if (intent != null && "tool".equals(intent.getAction())) {
+            final String tool = intent.getStringExtra("tool");
+            if (tool != null) {
+                handler.postDelayed(new Runnable() {
+                    public void run() {
+                        showRequestedTool(tool);
+                    }
+                }, 320);
+            }
         }
         return START_STICKY;
     }
@@ -432,6 +444,53 @@ public class SidebarService extends Service {
         } catch (Exception e) {
             Toast.makeText(c, "Không mở được thanh bên", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Opens one tool chosen from search, starting the sidebar when needed. */
+    static void requestTool(Context c, String id) {
+        if (id == null || id.isEmpty()) return;
+        if (current != null) {
+            current.showRequestedTool(id);
+            return;
+        }
+        Intent i = new Intent(c, SidebarService.class);
+        i.setAction("tool");
+        i.putExtra("tool", id);
+        try {
+            if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i);
+            else c.startService(i);
+        } catch (Exception e) {
+            Toast.makeText(c, "Không mở được thanh bên", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Re-reads timers after a tile or alarm changed them. */
+    static void refreshTimers() {
+        if (current == null) return;
+        current.timersLoaded = false;
+        current.loadTimers();
+        current.updateTimerLabels();
+        current.stopTimerTickIfIdle();
+        current.restartTimerTick();
+    }
+
+    /** Picks up the caffeine switch after a tile or shortcut toggled it. */
+    static void refreshCaffeine() {
+        if (current == null) return;
+        current.keepAwake = Side.caffeineOn(current);
+        current.applyKeepAwake(current.keepAwake);
+        current.paintCaffeine(true);
+    }
+
+    private void showRequestedTool(final String id) {
+        if (panel == null) openMenu();
+        final boolean ready = panel != null;
+        handler.postDelayed(new Runnable() {
+            public void run() {
+                perform(id);
+                if (ready) bumpAutoHide();
+            }
+        }, ready ? 140 : 420);
     }
 
     // ------------------------------------------------------------ capture hooks
@@ -1215,9 +1274,6 @@ public class SidebarService extends Service {
             }
         });
 
-        if (dockFocusable) panelParams.softInputMode =
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                        | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE;
     }
 
     private void closeTab(String key) {
@@ -1469,7 +1525,7 @@ public class SidebarService extends Service {
 
         List<View> buttons = new ArrayList<>();
         menuButtons.clear();
-        for (String id : Side.items(this)) {
+        for (String id : Modules.menuItems(this)) {
             View b = itemButton(id);
             if (b != null) {
                 b.setTag(id);
@@ -3683,7 +3739,8 @@ public class SidebarService extends Service {
         wrap.setPadding(dp(14), dp(12), dp(14), dp(10));
 
         wrap.addView(Ui.text(this, "Sửa thanh bên", 14, Ui.TEXT, true));
-        TextView hint = Ui.text(this, "Chạm để bật/tắt", 11, Ui.MUTED, false);
+        TextView hint = Ui.text(this,
+                "Chạm để bật/tắt · ẩn hẳn tại Tính năng & dữ liệu", 11, Ui.MUTED, false);
         hint.setLayoutParams(Ui.lp());
         Ui.margin(this, hint, 0, 3, 0, 6);
         wrap.addView(hint);
@@ -4867,11 +4924,33 @@ public class SidebarService extends Service {
 
     private void loadTimers() {
         if (timersLoaded) return;
+        long nowWall = System.currentTimeMillis();
+        long nowMono = SystemClock.elapsedRealtime();
         for (int i = 0; i < TIMER_SLOTS; i++) {
-            timerTotal[i] = Side.timerMinutes(this, i) * 60000L;
-            timerRemain[i] = timerTotal[i];
-            timerRunning[i] = false;
+            long storedTotal = TimerStore.total(this, i);
+            long total = storedTotal > 0 ? storedTotal
+                    : Side.timerMinutes(this, i) * 60000L;
+            timerTotal[i] = total;
+            timerRunning[i] = TimerStore.running(this, i);
             timerEnd[i] = 0L;
+            timerRemain[i] = total;
+            if (timerRunning[i]) {
+                long left = TimerStore.endWall(this, i) - nowWall;
+                if (left > 0) {
+                    timerRemain[i] = left;
+                    timerEnd[i] = nowMono + left;
+                } else {
+                    // Ended while the process was gone; the alarm already told
+                    // the user, so just settle the slot back to a fresh timer.
+                    timerRunning[i] = false;
+                    timerRemain[i] = total;
+                    TimerStore.notifyDone(SidebarService.this, i);
+                    TimerStore.clear(SidebarService.this, i);
+                }
+            } else {
+                long storedRemain = TimerStore.remain(this, i);
+                if (storedRemain > 0) timerRemain[i] = Math.min(storedRemain, total);
+            }
         }
         timersLoaded = true;
     }
@@ -4901,6 +4980,9 @@ public class SidebarService extends Service {
                     timerRunning[i] = false;
                     timerTotal[i] = Side.timerMinutes(SidebarService.this, i) * 60000L;
                     timerRemain[i] = timerTotal[i];
+                    TimerStore.save(SidebarService.this, i, false, 0L,
+                            timerRemain[i], timerTotal[i]);
+                    TimerStore.cancel(SidebarService.this, i);
                 }
                 handler.removeCallbacks(timerTick);
                 updateTimerLabels();
@@ -4965,6 +5047,9 @@ public class SidebarService extends Service {
                 timerRunning[index] = false;
                 timerTotal[index] = Side.timerMinutes(SidebarService.this, index) * 60000L;
                 timerRemain[index] = timerTotal[index];
+                TimerStore.save(SidebarService.this, index, false, 0L,
+                        timerRemain[index], timerTotal[index]);
+                TimerStore.cancel(SidebarService.this, index);
                 updateTimerLabels();
                 stopTimerTickIfIdle();
             }
@@ -5007,12 +5092,17 @@ public class SidebarService extends Service {
         if (timerRunning[index]) {
             timerRemain[index] = Math.max(0, timerEnd[index] - now);
             timerRunning[index] = false;
+            TimerStore.save(this, index, false, 0L, timerRemain[index], timerTotal[index]);
+            TimerStore.cancel(this, index);
             stopTimerTickIfIdle();
         } else {
             if (timerRemain[index] <= 0) timerRemain[index] = timerTotal[index];
             if (timerRemain[index] <= 0) timerRemain[index] = 60000L;
             timerEnd[index] = now + timerRemain[index];
             timerRunning[index] = true;
+            long wallEnd = System.currentTimeMillis() + timerRemain[index];
+            TimerStore.save(this, index, true, wallEnd, timerRemain[index], timerTotal[index]);
+            TimerStore.schedule(this, index, wallEnd);
             handler.removeCallbacks(timerTick);
             handler.post(timerTick);
         }
@@ -5033,6 +5123,13 @@ public class SidebarService extends Service {
         timerTotal[index] = Math.max(60000L, timerRemain[index]);
         int minutes = (int) Math.max(1, Math.round(timerTotal[index] / 60000d));
         Side.setTimerMinutes(this, index, minutes);
+        if (timerRunning[index]) {
+            long wallEnd = System.currentTimeMillis() + timerRemain[index];
+            TimerStore.save(this, index, true, wallEnd, timerRemain[index], timerTotal[index]);
+            TimerStore.schedule(this, index, wallEnd);
+        } else {
+            TimerStore.save(this, index, false, 0L, timerRemain[index], timerTotal[index]);
+        }
         updateTimerLabels();
     }
 
@@ -5058,6 +5155,8 @@ public class SidebarService extends Service {
                 if (left <= 0) {
                     left = 0;
                     timerRunning[i] = false;
+                    TimerStore.clear(SidebarService.this, i);
+                    TimerStore.notifyDone(SidebarService.this, i);
                     beepTimer();
                     toast("Hết giờ · Hẹn " + (i + 1));
                 }

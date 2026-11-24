@@ -92,8 +92,8 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   được lưu lại cho lần mở sau.
 - **Đa hẹn giờ** (`#timers`): 4 đồng hồ đếm ngược chạy song song trong một tab,
   mỗi đồng hồ chỉnh được thời lượng theo phút, bắt đầu / tạm dừng / đặt lại độc
-  lập. Hết giờ có hai tiếng bíp nhẹ; bộ đếm vẫn chạy khi đóng tab hoặc mở thước
-  đo, chụp màn hình, màn hình đen.
+  lập. Hết giờ có hai tiếng bíp nhẹ và một thông báo hệ thống; bộ đếm vẫn chạy
+  khi đóng tab, đóng app hoặc mở thước đo, chụp màn hình, màn hình đen.
 - **Khoá độ sáng** (`#brightness`): một chạm chuyển độ sáng hệ thống sang thủ
   công đúng mức đang dùng để cảm biến không tự làm tối màn hình; chạm lần nữa
   khôi phục chế độ và mức sáng trước đó.
@@ -140,6 +140,24 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
   cập nhật lúc đóng tab. Chạm vào ô văn bản là bàn phím hiện lên đúng, áp dụng
   cho cả Mật khẩu & mã hoá, Bộ đếm phiên cày, Bảng sát thương và Nhắc nhanh.
 - Bàn phím chỉ hiện khi chạm vào ô nhập, không tự bật khi vừa mở tab.
+- **Trung tâm tính năng** (*Tính năng & dữ liệu* ở màn hình chính): một danh sách
+  cho bật/tắt từng công cụ, ghim công cụ hay dùng lên đầu menu và ẩn hẳn những
+  công cụ không dùng. Trạng thái được lưu lại.
+- **Màn hình quyền hệ thống**: xem quyền nào đã cấp (hiển thị trên ứng dụng
+  khác, trợ năng, camera, thông báo, sửa cài đặt, Không làm phiền, báo thức chính
+  xác, tối ưu pin) và mở đúng trang cài đặt để cấp. App vẫn chỉ xin quyền khi
+  công cụ cần nó được dùng lần đầu.
+- **Sao lưu & khôi phục**: xuất toàn bộ ghi chú, mẫu giờ hẹn, bố cục thanh bên và
+  cài đặt ra một tệp JSON, rồi khôi phục lại trên máy mới hoặc sau khi cài lại.
+- **Tìm kiếm công cụ**: ô tìm ở màn hình chính, gõ không dấu vẫn ra kết quả; chạm
+  một kết quả là mở thẳng công cụ đó trong dock.
+- **Hẹn giờ chạy nền**: trạng thái 4 đồng hồ được lưu lại, dùng báo thức chính
+  xác để kêu đúng giờ kể cả khi app bị đóng, và gửi thông báo khi hết giờ. Giờ
+  đang chạy được khôi phục sau khi khởi động lại máy.
+- **Ghi chú nâng cao**: tìm trong nội dung, gắn nhãn và lọc theo nhãn, xuất toàn
+  bộ ghi chú ra tệp Markdown (`.md`).
+- **Phím tắt & tile**: thêm phím tắt màn hình chính và tile Cài đặt nhanh cho
+  Đèn pin, Giữ sáng màn hình và Hẹn giờ 5 phút.
 
 ### Bản 1.2.0
 

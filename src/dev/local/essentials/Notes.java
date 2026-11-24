@@ -16,10 +16,16 @@ final class Notes {
 
     static final class Note {
         String text;
+        String tag;
         long time;
 
         Note(String text, long time) {
+            this(text, "", time);
+        }
+
+        Note(String text, String tag, long time) {
             this.text = text;
+            this.tag = tag == null ? "" : tag;
             this.time = time;
         }
     }
@@ -36,7 +42,7 @@ final class Notes {
                 if (o == null) continue;
                 String t = o.optString("t", "");
                 if (t.isEmpty()) continue;
-                out.add(new Note(t, o.optLong("ts", 0L)));
+                out.add(new Note(t, o.optString("tag", ""), o.optLong("ts", 0L)));
             }
         } catch (Exception ignored) {
             // corrupt payload: behave like an empty list rather than crashing
@@ -50,6 +56,7 @@ final class Notes {
             try {
                 JSONObject o = new JSONObject();
                 o.put("t", n.text);
+                o.put("tag", n.tag == null ? "" : n.tag);
                 o.put("ts", n.time);
                 arr.put(o);
             } catch (Exception ignored) {
