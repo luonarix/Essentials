@@ -13,7 +13,7 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 
 - **Tác giả:** Nguyễn Nhật Minh Hoàng
 - **Nền tảng:** Android 7.0 (API 24) trở lên
-- **Phiên bản:** 1.2.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
+- **Phiên bản:** 1.3.0 — đánh số lại từ dòng 9.x (bản 10.0 cũ nay là 1.0.0)
 
 ---
 
@@ -132,6 +132,14 @@ viết bằng Java thuần trên SDK — không Gradle, không thư viện ngoà
 - **Khung chọn vùng full màn hình**: ẩn thanh thông báo và thanh điều hướng
   trong lúc chọn, ảnh giữ đúng tỉ lệ (không còn bị xẹp), và vùng lưu khớp chính
   xác với khung đang nhìn.
+
+### Bản 1.3.0
+
+- **Sửa bàn phím trong tab Mật khẩu & mã hoá**: cửa sổ dock giờ chuyển sang
+  trạng thái nhận bàn phím ngay khi mở bất kỳ tab có ô nhập chữ, thay vì chỉ
+  cập nhật lúc đóng tab. Chạm vào ô văn bản là bàn phím hiện lên đúng, áp dụng
+  cho cả Mật khẩu & mã hoá, Bộ đếm phiên cày, Bảng sát thương và Nhắc nhanh.
+- Bàn phím chỉ hiện khi chạm vào ô nhập, không tự bật khi vừa mở tab.
 
 ### Bản 1.2.0
 

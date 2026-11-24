@@ -1202,6 +1202,10 @@ public class SidebarService extends Service {
                 .setInterpolator(new DecelerateInterpolator())
                 .start();
 
+        // Tabs with text fields need a focusable window before the first tap,
+        // otherwise the IME never appears inside the overlay.
+        setDockFocusable(needsKeyboard());
+
         // Newest tab is appended at the bottom; bring it into view.
         card.post(new Runnable() {
             public void run() {
@@ -1352,7 +1356,7 @@ public class SidebarService extends Service {
                      : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         panelParams.softInputMode = on
                 ? WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                  | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                  | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED
                 : WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED;
         try {
             wm.updateViewLayout(panel, panelParams);
